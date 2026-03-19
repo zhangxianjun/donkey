@@ -1,0 +1,222 @@
+factor_set: daily_core_v1
+description: "First-pass daily factor set for BTC/ETH price-volume research."
+interval: 1d
+
+primary_keys:
+  - ts
+  - symbol
+
+base_columns:
+  - name: ts
+    dtype: TIMESTAMP
+    role: key
+  - name: symbol
+    dtype: VARCHAR
+    role: key
+  - name: open
+    dtype: DOUBLE
+    role: passthrough
+  - name: high
+    dtype: DOUBLE
+    role: passthrough
+  - name: low
+    dtype: DOUBLE
+    role: passthrough
+  - name: close
+    dtype: DOUBLE
+    role: passthrough
+  - name: volume
+    dtype: DOUBLE
+    role: passthrough
+
+fields:
+  - name: ret_1d
+    category: returns
+    dtype: DOUBLE
+    formula: close / lag(close, 1) - 1
+    depends_on:
+      - close
+    warmup_bars: 1
+    used_by:
+      - daily_research
+      - dual_momentum_v1
+
+  - name: ret_5d
+    category: returns
+    dtype: DOUBLE
+    formula: close / lag(close, 5) - 1
+    depends_on:
+      - close
+    warmup_bars: 5
+    used_by:
+      - momentum_screen
+
+  - name: ret_20d
+    category: returns
+    dtype: DOUBLE
+    formula: close / lag(close, 20) - 1
+    depends_on:
+      - close
+    warmup_bars: 20
+    used_by:
+      - dual_momentum_v1
+      - trend_filtering
+
+  - name: ma20
+    category: trend
+    dtype: DOUBLE
+    formula: avg(close, 20)
+    depends_on:
+      - close
+    warmup_bars: 20
+    used_by:
+      - vol_breakout_v1
+      - trend_pullback_v1
+
+  - name: ma50
+    category: trend
+    dtype: DOUBLE
+    formula: avg(close, 50)
+    depends_on:
+      - close
+    warmup_bars: 50
+    used_by:
+      - vol_breakout_v1
+      - trend_pullback_v1
+
+  - name: close_above_ma50
+    category: trend
+    dtype: INTEGER
+    formula: case when close > ma50 then 1 else 0 end
+    depends_on:
+      - close
+      - ma50
+    warmup_bars: 50
+    used_by:
+      - vol_breakout_v1
+
+  - name: close_below_ma20
+    category: trend
+    dtype: INTEGER
+    formula: case when close < ma20 then 1 else 0 end
+    depends_on:
+      - close
+      - ma20
+    warmup_bars: 20
+    used_by:
+      - vol_breakout_v1
+
+  - name: rolling_high_20
+    category: breakout
+    dtype: DOUBLE
+    formula: max(high over prior 20 bars, excluding current bar)
+    depends_on:
+      - high
+    warmup_bars: 20
+    used_by:
+      - vol_breakout_v1
+
+  - name: breakout_20d
+    category: breakout
+    dtype: INTEGER
+    formula: case when close > rolling_high_20 then 1 else 0 end
+    depends_on:
+      - close
+      - rolling_high_20
+    warmup_bars: 20
+    used_by:
+      - vol_breakout_v1
+
+  - name: vol_ma20
+    category: volume
+    dtype: DOUBLE
+    formula: avg(volume, 20)
+    depends_on:
+      - volume
+    warmup_bars: 20
+    used_by:
+      - vol_breakout_v1
+      - trend_pullback_v1
+
+  - name: vol_ratio_20
+    category: volume
+    dtype: DOUBLE
+    formula: volume / vol_ma20
+    depends_on:
+      - volume
+      - vol_ma20
+    warmup_bars: 20
+    used_by:
+      - vol_breakout_v1
+
+  - name: obv
+    category: volume
+    dtype: DOUBLE
+    formula: cumulative(sum(sign(close - lag(close, 1)) * volume))
+    depends_on:
+      - close
+      - volume
+    warmup_bars: 1
+    used_by:
+      - discretionary_review
+
+  - name: atr14
+    category: volatility
+    dtype: DOUBLE
+    formula: avg(true_range, 14)
+    depends_on:
+      - high
+      - low
+      - close
+    warmup_bars: 14
+    used_by:
+      - stop_loss_sizing
+
+  - name: volatility_20
+    category: volatility
+    dtype: DOUBLE
+    formula: stddev(ret_1d, 20)
+    depends_on:
+      - ret_1d
+    warmup_bars: 20
+    used_by:
+      - risk_scaling
+
+output_columns:
+  - ts
+  - symbol
+  - open
+  - high
+  - low
+  - close
+  - volume
+  - ret_1d
+  - ret_5d
+  - ret_20d
+  - ma20
+  - ma50
+  - close_above_ma50
+  - close_below_ma20
+  - rolling_high_20
+  - breakout_20d
+  - vol_ma20
+  - vol_ratio_20
+  - obv
+  - atr14
+  - volatility_20
+  - data_version
+  - factor_set
+
+strategy_dependencies:
+  vol_breakout_v1:
+    required_fields:
+      - close
+      - volume
+      - ma20
+      - ma50
+      - close_above_ma50
+      - close_below_ma20
+      - rolling_high_20
+      - breakout_20d
+      - vol_ma20
+      - vol_ratio_20

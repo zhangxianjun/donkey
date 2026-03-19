@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+import io
+from argparse import Namespace
+from types import SimpleNamespace
+import tempfile
+import unittest
+from unittest.mock import patch
+from pathlib import Path
+
+from src.ingestion.binance_ohlcv import (
+    DownloadRequest,
+    datetime_to_milliseconds,
+    fetch_exchange_symbols,
+    initialize_download_session,
+    interval_to_milliseconds,
+    kline_row_to_record,
+    parse_datetime_utc,
+    retry_delay_with_retry_after,
+    resolve_start_ms,
+    resolve_symbols,
+    write_checkpoint,
+)
+
+
+class BinanceOhlcvTests(unittest.TestCase):
+    def test_interval_to_milliseconds(self) -> None:
+        self.assertEqual(interval_to_milliseconds("5m"), 300_000)
+        self.assertEqual(interval_to_milliseconds("1h"), 3_600_000)
+        self.assertEqual(interval_to_milliseconds("1w"), 604_800_000)
+
+    def test_parse_datetime_utc_start_date(self) -> None:
+        parsed = parse_datetime_utc("2026-03-18", end_value=False)
+        self.assertEqual(parsed.isoformat(), "2026-03-18T00:00:00+00:00")
+
+    def test_parse_datetime_utc_end_date_is_end_of_day(self) -> None:
+        parsed = parse_datetime_utc("2026-03-18", end_value=True)
+        self.assertEqual(parsed.isoformat(), "2026-03-19T00:00:00+00:00")
+
+    def test_parse_datetime_utc_normalizes_timezone(self) -> None:
+        parsed = parse_datetime_utc("2026-03-18T08:00:00+08:00", end_value=False)
+        self.assertEqual(parsed.isoformat(), "2026-03-18T00:00:00+00:00")
+
+    def test_kline_row_to_record(self) -> None:
+        row = [
+            1_710_720_000_000,
+            "62000.10",
+            "62500.00",
+            "61888.80",
+            "62333.30",
+            "123.45",
+            1_710_723_599_999,
+            "7700000.00",
+            4567,
+            "61.00",
+            "3800000.00",
+            "0",
+        ]
+        record = kline_row_to_record(
+            row,
+            symbol="BTCUSDT",
+            interval="1h",
+            fetched_at="2026-03-18T01:02:03Z",
+        )
+
+        self.assertEqual(record["symbol"], "BTCUSDT")
+        self.assertEqual(record["interval"], "1h")
+        self.assertEqual(record["open"], "62000.10")
+        self.assertEqual(record["number_of_trades"], 4567)
+        self.assertEqual(record["fetched_at"], "2026-03-18T01:02:03Z")
+
+    def test_datetime_to_milliseconds(self) -> None:
+        parsed = parse_datetime_utc("1970-01-01T00:00:01+00:00", end_value=False)
+        self.assertEqual(datetime_to_milliseconds(parsed), 1000)
+
+    def test_resolve_start_ms_defaults_to_epoch_floor_for_listing_mode(self) -> None:
+        args = Namespace(
+            start_date=None,
+            start_from_listing=True,
+        )
+        self.assertEqual(resolve_start_ms(args), 0)
+
+    def test_resolve_symbols_uses_exchange_info_when_all_spot_requested(self) -> None:
+        args = Namespace(
+            all_spot_symbols=True,
+            symbols=["BTCUSDT"],
+            symbol_statuses=["TRADING"],
+            quote_assets=["USDT"],
+            exchange_info_base_url="https://api.binance.com",
+            timeout_seconds=30.0,
+            max_retries=3,
+            retry_delay_seconds=1.0,
+            max_symbols=2,
+        )
+
+        with patch(
+            "src.ingestion.binance_ohlcv.fetch_exchange_symbols",
+            return_value=["ADAUSDT", "BTCUSDT"],
+        ) as mocked:
+            symbols = resolve_symbols(args)
+
+        self.assertEqual(symbols, ["ADAUSDT", "BTCUSDT"])
+        mocked.assert_called_once()
+
+    def test_retry_delay_uses_retry_after_when_larger(self) -> None:
+        error = SimpleNamespace(headers={"Retry-After": "7"})
+        delay = retry_delay_with_retry_after(
+            error,
+            base_delay_seconds=1.0,
+            attempt=1,
+        )
+        self.assertEqual(delay, 7.0)
+
+    @patch("src.ingestion.binance_ohlcv.fetch_json_payload")
+    def test_fetch_exchange_symbols_filters_quote_asset(self, mocked_fetch: object) -> None:
+        mocked_fetch.return_value = {
+            "symbols": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": "TRADING",
+                    "baseAsset": "BTC",
+                    "quoteAsset": "USDT",
+                },
+                {
+                    "symbol": "BTCFDUSD",
+                    "status": "TRADING",
+                    "baseAsset": "BTC",
+                    "quoteAsset": "FDUSD",
+                },
+            ]
+        }
+
+        symbols = fetch_exchange_symbols(
+            base_url="https://api.binance.com",
+            timeout_seconds=30.0,
+            max_retries=3,
+            retry_delay_seconds=1.0,
+            allowed_statuses={"TRADING"},
+            allowed_quote_assets={"USDT"},
+            max_symbols=None,
+        )
+        self.assertEqual(symbols, ["BTCUSDT"])
+
+    def test_initialize_download_session_resumes_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_root = Path(tmpdir)
+            request = DownloadRequest(
+                symbol="BTCUSDT",
+                interval="1h",
+                start_ms=0,
+                end_ms=1000,
+                base_url="https://data-api.binance.vision",
+                output_root=output_root,
+                limit=1000,
+                timeout_seconds=30.0,
+                sleep_seconds=0.0,
+                max_retries=3,
+                retry_delay_seconds=1.0,
+                start_from_listing=False,
+                resume_incomplete=True,
+            )
+
+            first = initialize_download_session(request, run_id="run_a")
+            first.data_path.write_text("{}", encoding="utf-8")
+            first.current_start_ms = 500
+            first.row_count = 10
+            write_checkpoint(request, first)
+
+            with patch("sys.stderr", new=io.StringIO()):
+                resumed = initialize_download_session(request, run_id="run_b")
+
+            self.assertTrue(resumed.resumed_from_checkpoint)
+            self.assertEqual(resumed.run_id, "run_a")
+            self.assertEqual(resumed.current_start_ms, 500)
+            self.assertEqual(resumed.row_count, 10)
+            self.assertEqual(resumed.data_path, first.data_path)
+
+
+if __name__ == "__main__":
+    unittest.main()

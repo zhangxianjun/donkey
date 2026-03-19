@@ -1,0 +1,67 @@
+strategy_name: vol_breakout
+strategy_version: v1
+description: "20-bar breakout with volume confirmation and MA50 trend filter."
+
+universe:
+  exchange: binance
+  market_type: spot
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+  interval: 1d
+
+data:
+  data_version: v1
+  factor_set: daily_core_v1
+  required_fields:
+    - close
+    - volume
+    - ma20
+    - ma50
+    - close_above_ma50
+    - close_below_ma20
+    - rolling_high_20
+    - breakout_20d
+    - vol_ma20
+    - vol_ratio_20
+
+signal:
+  side: long_only
+  warmup_bars: 100
+  entry:
+    breakout_window: 20
+    breakout_field: breakout_20d
+    vol_ratio_field: vol_ratio_20
+    vol_ratio_min: 2.0
+    trend_filter_field: close_above_ma50
+    require_trend_filter: true
+    entry_reason: breakout_20d_and_vol_ratio_20_with_ma50_filter
+  exit:
+    trend_exit_field: close_below_ma20
+    use_close_below_ma20: true
+    exit_reason: close_below_ma20
+
+execution:
+  order_type: next_bar_open
+  rebalance_frequency: daily
+  slippage_bps: 5
+  fee_bps: 10
+
+risk:
+  position_sizing: equal_weight_active
+  max_position_per_symbol: 0.5
+  max_total_exposure: 1.0
+  max_active_positions: 2
+  allow_partial_cash: true
+
+backtest:
+  initial_capital: 100000.0
+  start_date: "2018-01-01"
+  end_date: "2025-12-31"
+  benchmark_symbol: BTCUSDT
+
+artifacts:
+  signal_path: data/signals/vol_breakout_v1/{symbol}_1d_signal.parquet
+  trades_path: data/backtests/vol_breakout_v1/trades.parquet
+  equity_path: data/backtests/vol_breakout_v1/portfolio_equity.parquet
+  summary_path: data/backtests/vol_breakout_v1/summary.json

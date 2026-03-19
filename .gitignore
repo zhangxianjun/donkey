@@ -1,0 +1,18 @@
+# OS / editor
+.DS_Store
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Local generated data
+data/raw/
+data/normalized/
+db/*.duckdb
+
+# Checkpoints and manifests generated during runs
+*_checkpoint.json
