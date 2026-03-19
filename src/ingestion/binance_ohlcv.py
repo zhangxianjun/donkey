@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import random
+import socket
 import ssl
 import sys
 import time
@@ -320,6 +322,44 @@ def retry_delay_with_backoff(
     return delay
 
 
+def transient_retry_delay(
+    *,
+    retry_delay_seconds: float,
+    retry_jitter_seconds: float,
+    attempt: int,
+) -> float:
+    return retry_delay_with_backoff(
+        base_delay_seconds=retry_delay_seconds,
+        attempt=attempt,
+        jitter_seconds=retry_jitter_seconds,
+    )
+
+
+def log_retry(
+    *,
+    request_label: str,
+    error_label: str,
+    url: str,
+    next_url: str,
+    attempt: int,
+    max_retries: int,
+    delay: float,
+) -> None:
+    print(
+        f"[retry] {request_label} {error_label} "
+        f"endpoint={endpoint_label(url)} "
+        f"next_endpoint={endpoint_label(next_url)} "
+        f"attempt={attempt + 1}/{max_retries} sleep={delay:.1f}s",
+        file=sys.stderr,
+    )
+
+
+def parse_json_response_body(body: bytes | str) -> Any:
+    if isinstance(body, bytes):
+        return json.loads(body.decode("utf-8"))
+    return json.loads(body)
+
+
 def fetch_json_payload(
     urls: list[str],
     *,
@@ -344,7 +384,8 @@ def fetch_json_payload(
         )
         try:
             with urlopen(http_request, timeout=timeout_seconds) as response:
-                return json.load(response)
+                body = response.read()
+            return parse_json_response_body(body)
         except HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             retryable = exc.code in {418, 429} or 500 <= exc.code < 600
@@ -356,31 +397,65 @@ def fetch_json_payload(
                     jitter_seconds=retry_jitter_seconds,
                 )
                 next_url = urls[(attempt + 1) % len(urls)]
-                print(
-                    f"[retry] {request_label} http={exc.code} "
-                    f"endpoint={endpoint_label(url)} "
-                    f"next_endpoint={endpoint_label(next_url)} "
-                    f"attempt={attempt + 1}/{max_retries} sleep={delay:.1f}s",
-                    file=sys.stderr,
+                log_retry(
+                    request_label=request_label,
+                    error_label=f"http={exc.code}",
+                    url=url,
+                    next_url=next_url,
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    delay=delay,
                 )
                 time.sleep(delay)
                 continue
             raise RuntimeError(f"Binance HTTP {exc.code} for {request_label}: {body}") from exc
-        except (URLError, TimeoutError, ssl.SSLError, OSError) as exc:
+        except json.JSONDecodeError as exc:
             if attempt < max_retries:
-                delay = retry_delay_with_backoff(
-                    base_delay_seconds=retry_delay_seconds,
+                delay = transient_retry_delay(
+                    retry_delay_seconds=retry_delay_seconds,
+                    retry_jitter_seconds=retry_jitter_seconds,
                     attempt=attempt,
-                    jitter_seconds=retry_jitter_seconds,
+                )
+                next_url = urls[(attempt + 1) % len(urls)]
+                log_retry(
+                    request_label=request_label,
+                    error_label=f"parse={type(exc).__name__}:{exc}",
+                    url=url,
+                    next_url=next_url,
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    delay=delay,
+                )
+                time.sleep(delay)
+                continue
+            raise RuntimeError(
+                f"Invalid JSON response for {request_label} via {endpoint_label(url)}: {exc}"
+            ) from exc
+        except (
+            URLError,
+            TimeoutError,
+            socket.timeout,
+            ssl.SSLError,
+            http.client.IncompleteRead,
+            ConnectionResetError,
+            OSError,
+        ) as exc:
+            if attempt < max_retries:
+                delay = transient_retry_delay(
+                    retry_delay_seconds=retry_delay_seconds,
+                    retry_jitter_seconds=retry_jitter_seconds,
+                    attempt=attempt,
                 )
                 next_url = urls[(attempt + 1) % len(urls)]
                 reason = exc.reason if isinstance(exc, URLError) else exc
-                print(
-                    f"[retry] {request_label} network={type(exc).__name__}:{reason} "
-                    f"endpoint={endpoint_label(url)} "
-                    f"next_endpoint={endpoint_label(next_url)} "
-                    f"attempt={attempt + 1}/{max_retries} sleep={delay:.1f}s",
-                    file=sys.stderr,
+                log_retry(
+                    request_label=request_label,
+                    error_label=f"network={type(exc).__name__}:{reason}",
+                    url=url,
+                    next_url=next_url,
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    delay=delay,
                 )
                 time.sleep(delay)
                 continue

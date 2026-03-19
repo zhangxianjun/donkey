@@ -1505,6 +1505,23 @@ python3 -m src.ingestion.binance_ohlcv \
   --retry-jitter-seconds 1 \
   --sleep-seconds 0.2
 
+如果报错里明确是 `TimeoutError: The read operation timed out`，再额外把单次超时放宽、单页条数调小：
+
+python3 -m src.ingestion.binance_ohlcv \
+  --all-spot-symbols \
+  --symbol-statuses TRADING \
+  --quote-assets USDT \
+  --intervals 5m \
+  --start-from-listing \
+  --end-date 2026-03-18 \
+  --base-url https://api.binance.com \
+  --limit 500 \
+  --timeout-seconds 120 \
+  --max-retries 8 \
+  --retry-delay-seconds 2 \
+  --retry-jitter-seconds 1 \
+  --sleep-seconds 0.2
+
 时间参数规则：
 
 start-date 是包含起点

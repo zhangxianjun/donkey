@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import http.client
 import io
+import json
+import socket
 import ssl
 from argparse import Namespace
 from types import SimpleNamespace
@@ -257,6 +260,129 @@ class BinanceOhlcvTests(unittest.TestCase):
         )
 
         self.assertEqual(payload, [])
+        mocked_sleep.assert_called_once_with(0.0)
+
+    @patch("src.ingestion.binance_ohlcv.time.sleep")
+    @patch("src.ingestion.binance_ohlcv.urlopen")
+    def test_fetch_json_payload_retries_read_timeout(
+        self,
+        mocked_urlopen: object,
+        mocked_sleep: object,
+    ) -> None:
+        class TimeoutResponse:
+            def __enter__(self) -> "TimeoutResponse":
+                return self
+
+            def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+                return False
+
+            def read(self) -> bytes:
+                raise socket.timeout("The read operation timed out")
+
+        class OkResponse:
+            def __enter__(self) -> "OkResponse":
+                return self
+
+            def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+                return False
+
+            def read(self) -> bytes:
+                return b'{"rows": 1}'
+
+        mocked_urlopen.side_effect = [TimeoutResponse(), OkResponse()]
+
+        payload = fetch_json_payload(
+            ["https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT"],
+            timeout_seconds=30.0,
+            max_retries=1,
+            retry_delay_seconds=0.0,
+            retry_jitter_seconds=0.0,
+            request_label="BTCUSDT 5m",
+        )
+
+        self.assertEqual(payload, {"rows": 1})
+        mocked_sleep.assert_called_once_with(0.0)
+
+    @patch("src.ingestion.binance_ohlcv.time.sleep")
+    @patch("src.ingestion.binance_ohlcv.urlopen")
+    def test_fetch_json_payload_retries_incomplete_read(
+        self,
+        mocked_urlopen: object,
+        mocked_sleep: object,
+    ) -> None:
+        class IncompleteResponse:
+            def __enter__(self) -> "IncompleteResponse":
+                return self
+
+            def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+                return False
+
+            def read(self) -> bytes:
+                raise http.client.IncompleteRead(b'{"ok":', 10)
+
+        class OkResponse:
+            def __enter__(self) -> "OkResponse":
+                return self
+
+            def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+                return False
+
+            def read(self) -> bytes:
+                return b'{"ok": true}'
+
+        mocked_urlopen.side_effect = [IncompleteResponse(), OkResponse()]
+
+        payload = fetch_json_payload(
+            ["https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT"],
+            timeout_seconds=30.0,
+            max_retries=1,
+            retry_delay_seconds=0.0,
+            retry_jitter_seconds=0.0,
+            request_label="BTCUSDT 5m",
+        )
+
+        self.assertEqual(payload, {"ok": True})
+        mocked_sleep.assert_called_once_with(0.0)
+
+    @patch("src.ingestion.binance_ohlcv.time.sleep")
+    @patch("src.ingestion.binance_ohlcv.urlopen")
+    def test_fetch_json_payload_retries_json_decode_error(
+        self,
+        mocked_urlopen: object,
+        mocked_sleep: object,
+    ) -> None:
+        class BadJsonResponse:
+            def __enter__(self) -> "BadJsonResponse":
+                return self
+
+            def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+                return False
+
+            def read(self) -> bytes:
+                return b'{"ok":'
+
+        class OkResponse:
+            def __enter__(self) -> "OkResponse":
+                return self
+
+            def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+                return False
+
+            def read(self) -> bytes:
+                return json.dumps({"ok": True}).encode("utf-8")
+
+        mocked_urlopen.side_effect = [BadJsonResponse(), OkResponse()]
+
+        payload = fetch_json_payload(
+            ["https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT"],
+            timeout_seconds=30.0,
+            max_retries=1,
+            retry_delay_seconds=0.0,
+            retry_jitter_seconds=0.0,
+            request_label="BTCUSDT 5m",
+        )
+
+        self.assertEqual(payload, {"ok": True})
         mocked_sleep.assert_called_once_with(0.0)
 
 
