@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import io
+import ssl
 from argparse import Namespace
 from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
+from urllib.error import URLError
 
 from src.ingestion.binance_ohlcv import (
     DownloadRequest,
+    build_candidate_urls,
     datetime_to_milliseconds,
     fetch_exchange_symbols,
+    fetch_json_payload,
     initialize_download_session,
     interval_to_milliseconds,
     kline_row_to_record,
@@ -108,6 +112,7 @@ class BinanceOhlcvTests(unittest.TestCase):
             error,
             base_delay_seconds=1.0,
             attempt=1,
+            jitter_seconds=0.0,
         )
         self.assertEqual(delay, 7.0)
 
@@ -150,12 +155,14 @@ class BinanceOhlcvTests(unittest.TestCase):
                 start_ms=0,
                 end_ms=1000,
                 base_url="https://data-api.binance.vision",
+                fallback_base_urls=("https://api.binance.com",),
                 output_root=output_root,
                 limit=1000,
                 timeout_seconds=30.0,
                 sleep_seconds=0.0,
                 max_retries=3,
                 retry_delay_seconds=1.0,
+                retry_jitter_seconds=0.0,
                 start_from_listing=False,
                 resume_incomplete=True,
             )
@@ -174,6 +181,83 @@ class BinanceOhlcvTests(unittest.TestCase):
             self.assertEqual(resumed.current_start_ms, 500)
             self.assertEqual(resumed.row_count, 10)
             self.assertEqual(resumed.data_path, first.data_path)
+
+    def test_build_candidate_urls_dedupes_primary_and_fallbacks(self) -> None:
+        urls = build_candidate_urls(
+            "https://data-api.binance.vision",
+            "/api/v3/klines",
+            {"symbol": "BTCUSDT"},
+            fallback_base_urls=(
+                "https://api.binance.com",
+                "https://data-api.binance.vision",
+            ),
+        )
+        self.assertEqual(
+            urls,
+            [
+                "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT",
+                "https://api.binance.com/api/v3/klines?symbol=BTCUSDT",
+            ],
+        )
+
+    @patch("src.ingestion.binance_ohlcv.time.sleep")
+    @patch("src.ingestion.binance_ohlcv.urlopen")
+    def test_fetch_json_payload_rotates_to_fallback_after_url_error(
+        self,
+        mocked_urlopen: object,
+        mocked_sleep: object,
+    ) -> None:
+        mocked_urlopen.side_effect = [
+            URLError("EOF"),
+            io.StringIO('{"ok": true}'),
+        ]
+
+        payload = fetch_json_payload(
+            [
+                "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT",
+                "https://api.binance.com/api/v3/klines?symbol=BTCUSDT",
+            ],
+            timeout_seconds=30.0,
+            max_retries=1,
+            retry_delay_seconds=0.0,
+            retry_jitter_seconds=0.0,
+            request_label="BTCUSDT 5m",
+        )
+
+        self.assertEqual(payload, {"ok": True})
+        self.assertEqual(
+            mocked_urlopen.call_args_list[0].args[0].full_url,
+            "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT",
+        )
+        self.assertEqual(
+            mocked_urlopen.call_args_list[1].args[0].full_url,
+            "https://api.binance.com/api/v3/klines?symbol=BTCUSDT",
+        )
+        mocked_sleep.assert_called_once_with(0.0)
+
+    @patch("src.ingestion.binance_ohlcv.time.sleep")
+    @patch("src.ingestion.binance_ohlcv.urlopen")
+    def test_fetch_json_payload_retries_direct_ssl_error(
+        self,
+        mocked_urlopen: object,
+        mocked_sleep: object,
+    ) -> None:
+        mocked_urlopen.side_effect = [
+            ssl.SSLEOFError(8, "EOF occurred in violation of protocol"),
+            io.StringIO("[]"),
+        ]
+
+        payload = fetch_json_payload(
+            ["https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT"],
+            timeout_seconds=30.0,
+            max_retries=1,
+            retry_delay_seconds=0.0,
+            retry_jitter_seconds=0.0,
+            request_label="BTCUSDT 5m",
+        )
+
+        self.assertEqual(payload, [])
+        mocked_sleep.assert_called_once_with(0.0)
 
 
 if __name__ == "__main__":

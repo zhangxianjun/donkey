@@ -1441,6 +1441,8 @@ src/ingestion/binance_ohlcv.py
 
 对瞬时网络错误、429、5xx 自动重试
 
+K 线请求默认会在主 endpoint 失败后自动切换到备用 Binance endpoint 继续重试
+
 支持 checkpoint / 自动续跑，进程中断后再次执行同样请求会从上次进度继续
 
 输出到 raw 层目录：
@@ -1488,6 +1490,20 @@ python3 -m src.ingestion.binance_ohlcv \
   --intervals 1d \
   --start-from-listing \
   --end-date 2026-03-18
+
+如果服务器网络偶尔出现 `SSL: UNEXPECTED_EOF_WHILE_READING`，可以把重试和退避再放宽一点：
+
+python3 -m src.ingestion.binance_ohlcv \
+  --all-spot-symbols \
+  --symbol-statuses TRADING \
+  --quote-assets USDT \
+  --intervals 5m \
+  --start-from-listing \
+  --end-date 2026-03-18 \
+  --max-retries 8 \
+  --retry-delay-seconds 2 \
+  --retry-jitter-seconds 1 \
+  --sleep-seconds 0.2
 
 时间参数规则：
 

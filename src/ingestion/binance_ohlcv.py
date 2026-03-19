@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
+import ssl
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -14,6 +16,7 @@ from urllib.request import Request, urlopen
 
 DEFAULT_MARKET_DATA_BASE_URL = "https://data-api.binance.vision"
 DEFAULT_EXCHANGE_INFO_BASE_URL = "https://api.binance.com"
+DEFAULT_KLINE_FALLBACK_BASE_URLS = (DEFAULT_EXCHANGE_INFO_BASE_URL,)
 DEFAULT_MANUAL_START_DATE = "2018-01-01"
 DEFAULT_INTERVALS = ("5m", "1h", "4h", "8h", "1d", "1w")
 DEFAULT_SYMBOLS = ("BTCUSDT", "ETHUSDT")
@@ -49,12 +52,14 @@ class DownloadRequest:
     start_ms: int
     end_ms: int
     base_url: str
+    fallback_base_urls: tuple[str, ...]
     output_root: Path
     limit: int
     timeout_seconds: float
     sleep_seconds: float
     max_retries: int
     retry_delay_seconds: float
+    retry_jitter_seconds: float
     start_from_listing: bool
     resume_incomplete: bool
 
@@ -137,6 +142,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Binance market-data base URL used for klines.",
     )
     parser.add_argument(
+        "--fallback-base-urls",
+        nargs="*",
+        default=list(DEFAULT_KLINE_FALLBACK_BASE_URLS),
+        help=(
+            "Optional fallback Binance base URLs used for klines after transient failures. "
+            "Example: https://api.binance.com https://api-gcp.binance.com"
+        ),
+    )
+    parser.add_argument(
         "--exchange-info-base-url",
         default=DEFAULT_EXCHANGE_INFO_BASE_URL,
         help="Binance base URL used for exchangeInfo symbol discovery.",
@@ -175,6 +189,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=1.0,
         help="Base delay before retry; exponential backoff applies.",
+    )
+    parser.add_argument(
+        "--retry-jitter-seconds",
+        type=float,
+        default=0.5,
+        help="Additional random jitter added to retry backoff to reduce repeated edge failures.",
     )
     parser.add_argument(
         "--start-from-listing",
@@ -262,23 +282,66 @@ def build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
     return f"{base_url.rstrip('/')}{path}?{urlencode(params)}"
 
 
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
+
+
+def build_candidate_urls(
+    primary_base_url: str,
+    path: str,
+    params: dict[str, Any],
+    *,
+    fallback_base_urls: tuple[str, ...] = (),
+) -> list[str]:
+    base_urls = dedupe_preserve_order([primary_base_url, *fallback_base_urls])
+    return [build_url(base_url, path, params) for base_url in base_urls]
+
+
+def endpoint_label(url: str) -> str:
+    return url.split("/", 3)[2]
+
+
+def retry_delay_with_backoff(
+    *,
+    base_delay_seconds: float,
+    attempt: int,
+    jitter_seconds: float,
+) -> float:
+    delay = base_delay_seconds * (2**attempt)
+    if jitter_seconds > 0:
+        delay += random.uniform(0.0, jitter_seconds)
+    return delay
+
+
 def fetch_json_payload(
-    url: str,
+    urls: list[str],
     *,
     timeout_seconds: float,
     max_retries: int,
     retry_delay_seconds: float,
+    retry_jitter_seconds: float,
     request_label: str,
 ) -> Any:
-    http_request = Request(
-        url,
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "donkey-ingestion/0.1",
-        },
-    )
+    if not urls:
+        raise ValueError("fetch_json_payload requires at least one URL.")
 
     for attempt in range(max_retries + 1):
+        url = urls[attempt % len(urls)]
+        http_request = Request(
+            url,
+            headers={
+                "Accept": "application/json",
+                "Connection": "close",
+                "User-Agent": "donkey-ingestion/0.1",
+            },
+        )
         try:
             with urlopen(http_request, timeout=timeout_seconds) as response:
                 return json.load(response)
@@ -290,26 +353,41 @@ def fetch_json_payload(
                     exc,
                     base_delay_seconds=retry_delay_seconds,
                     attempt=attempt,
+                    jitter_seconds=retry_jitter_seconds,
                 )
+                next_url = urls[(attempt + 1) % len(urls)]
                 print(
                     f"[retry] {request_label} http={exc.code} "
+                    f"endpoint={endpoint_label(url)} "
+                    f"next_endpoint={endpoint_label(next_url)} "
                     f"attempt={attempt + 1}/{max_retries} sleep={delay:.1f}s",
                     file=sys.stderr,
                 )
                 time.sleep(delay)
                 continue
             raise RuntimeError(f"Binance HTTP {exc.code} for {request_label}: {body}") from exc
-        except URLError as exc:
+        except (URLError, TimeoutError, ssl.SSLError, OSError) as exc:
             if attempt < max_retries:
-                delay = retry_delay_seconds * (2**attempt)
+                delay = retry_delay_with_backoff(
+                    base_delay_seconds=retry_delay_seconds,
+                    attempt=attempt,
+                    jitter_seconds=retry_jitter_seconds,
+                )
+                next_url = urls[(attempt + 1) % len(urls)]
+                reason = exc.reason if isinstance(exc, URLError) else exc
                 print(
-                    f"[retry] {request_label} network={exc.reason} "
+                    f"[retry] {request_label} network={type(exc).__name__}:{reason} "
+                    f"endpoint={endpoint_label(url)} "
+                    f"next_endpoint={endpoint_label(next_url)} "
                     f"attempt={attempt + 1}/{max_retries} sleep={delay:.1f}s",
                     file=sys.stderr,
                 )
                 time.sleep(delay)
                 continue
-            raise RuntimeError(f"Network error for {request_label}: {exc.reason}") from exc
+            reason = exc.reason if isinstance(exc, URLError) else exc
+            raise RuntimeError(
+                f"Network error for {request_label} via {endpoint_label(url)}: {reason}"
+            ) from exc
 
 
 def retry_delay_with_retry_after(
@@ -317,8 +395,13 @@ def retry_delay_with_retry_after(
     *,
     base_delay_seconds: float,
     attempt: int,
+    jitter_seconds: float,
 ) -> float:
-    delay = base_delay_seconds * (2**attempt)
+    delay = retry_delay_with_backoff(
+        base_delay_seconds=base_delay_seconds,
+        attempt=attempt,
+        jitter_seconds=jitter_seconds,
+    )
     retry_after = error.headers.get("Retry-After")
     if retry_after is None:
         return delay
@@ -343,12 +426,12 @@ def fetch_exchange_symbols(
         "permissions": "SPOT",
         "showPermissionSets": "false",
     }
-    url = build_url(base_url, EXCHANGE_INFO_PATH, params)
     payload = fetch_json_payload(
-        url,
+        build_candidate_urls(base_url, EXCHANGE_INFO_PATH, params),
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
         retry_delay_seconds=retry_delay_seconds,
+        retry_jitter_seconds=0.0,
         request_label="exchangeInfo",
     )
 
@@ -385,12 +468,17 @@ def fetch_klines_page(request: DownloadRequest, start_ms: int) -> list[list[Any]
         "endTime": request.end_ms - 1,
         "limit": request.limit,
     }
-    url = build_url(request.base_url, KLINES_PATH, params)
     payload = fetch_json_payload(
-        url,
+        build_candidate_urls(
+            request.base_url,
+            KLINES_PATH,
+            params,
+            fallback_base_urls=request.fallback_base_urls,
+        ),
         timeout_seconds=request.timeout_seconds,
         max_retries=request.max_retries,
         retry_delay_seconds=request.retry_delay_seconds,
+        retry_jitter_seconds=request.retry_jitter_seconds,
         request_label=f"{request.symbol} {request.interval}",
     )
 
@@ -693,6 +781,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-retries must be >= 0.")
     if args.retry_delay_seconds < 0:
         raise ValueError("--retry-delay-seconds must be >= 0.")
+    if args.retry_jitter_seconds < 0:
+        raise ValueError("--retry-jitter-seconds must be >= 0.")
     if args.max_symbols is not None and args.max_symbols <= 0:
         raise ValueError("--max-symbols must be > 0.")
 
@@ -736,12 +826,14 @@ def build_requests(args: argparse.Namespace, symbols: list[str]) -> list[Downloa
                     start_ms=start_ms,
                     end_ms=end_ms,
                     base_url=args.base_url,
+                    fallback_base_urls=tuple(args.fallback_base_urls or []),
                     output_root=output_root,
                     limit=args.limit,
                     timeout_seconds=args.timeout_seconds,
                     sleep_seconds=args.sleep_seconds,
                     max_retries=args.max_retries,
                     retry_delay_seconds=args.retry_delay_seconds,
+                    retry_jitter_seconds=args.retry_jitter_seconds,
                     start_from_listing=args.start_from_listing,
                     resume_incomplete=args.resume_incomplete,
                 )
@@ -829,6 +921,7 @@ def main(argv: list[str] | None = None) -> int:
             args.end_date, end_value=True
         ).isoformat().replace("+00:00", "Z"),
         "start_from_listing": args.start_from_listing,
+        "fallback_base_urls": args.fallback_base_urls,
         "quote_assets": args.quote_assets,
         "resume_incomplete": args.resume_incomplete,
         "downloads": [asdict(summary) for summary in summaries],
