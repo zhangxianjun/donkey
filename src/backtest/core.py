@@ -416,7 +416,7 @@ def compute_cagr(
     start_dt = iso_to_datetime(start_ts)
     end_dt = iso_to_datetime(end_ts)
     years = max((end_dt - start_dt).total_seconds() / (365.0 * 24.0 * 3600.0), 1.0 / 365.0)
-    return end_equity ** (1.0 / years) / start_equity ** (1.0 / years) - 1.0
+    return (end_equity / start_equity) ** (1.0 / years) - 1.0
 
 
 def compute_max_drawdown(equity_values: list[float]) -> float:

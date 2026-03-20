@@ -71,6 +71,8 @@ def run_native_backtest(
                     affordable_qty = cash / (fill_price * (1.0 + settings.fee_rate))
                     gross_cost = affordable_qty * fill_price
                     fee_paid = gross_cost * settings.fee_rate
+                elif not settings.allow_partial_cash and gross_cost + fee_paid > cash:
+                    continue
                 if affordable_qty <= 0:
                     continue
 

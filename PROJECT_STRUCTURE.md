@@ -44,6 +44,14 @@ donkey/
 │           ├── market_ohlcv_<interval>.jsonl
 │           ├── market_ohlcv_<interval>.parquet
 │           └── normalize_manifest.json
+│   ├── signals/
+│   │   └── <strategy_id>/
+│   │       └── <symbol>_<interval>_signal.jsonl
+│   └── backtests/
+│       └── <strategy_id>/
+│           ├── trades.jsonl
+│           ├── portfolio_equity.jsonl
+│           └── summary.json
 ├── db/
 │   ├── .gitkeep
 │   ├── experiments.duckdb
@@ -67,6 +75,12 @@ donkey/
 │   ├── normalize/
 │   │   ├── __init__.py
 │   │   └── market_ohlcv.py
+│   ├── backtest/
+│   │   ├── __init__.py
+│   │   ├── bt_adapter.py
+│   │   ├── core.py
+│   │   ├── native.py
+│   │   └── run.py
 │   ├── strategies/
 │   │   ├── builtin/
 │   │   │   ├── __init__.py
@@ -81,6 +95,7 @@ donkey/
 │   │   └── load_duckdb.py
 │   └── __init__.py
 └── tests/
+    ├── test_backtest_runner.py
     ├── test_binance_ohlcv.py
     ├── test_load_duckdb.py
     ├── test_market_ohlcv_normalize.py
@@ -170,6 +185,7 @@ donkey/
 - `src/admin/static/` 存放管理面板静态页面。
 - `src/ingestion/` 负责采集 Binance 原始 K 线。
 - `src/normalize/` 负责把 raw 数据统一成 `market_ohlcv`。
+- `src/backtest/` 负责原生回测执行和外部回测库适配。
 - `src/strategies/` 负责策略模块加载、热重载和信号生成。
 - `src/warehouse/` 负责把 normalized 数据装入 DuckDB。
 
@@ -224,6 +240,11 @@ donkey/
 - `src/ingestion/binance_ohlcv.py`
 - `src/normalize/__init__.py`
 - `src/normalize/market_ohlcv.py`
+- `src/backtest/__init__.py`
+- `src/backtest/core.py`
+- `src/backtest/native.py`
+- `src/backtest/bt_adapter.py`
+- `src/backtest/run.py`
 - `src/strategies/__init__.py`
 - `src/strategies/core.py`
 - `src/strategies/loader.py`
@@ -240,6 +261,7 @@ donkey/
 - `tests/test_market_ohlcv_normalize.py`
 - `tests/test_load_duckdb.py`
 - `tests/test_pairs_dashboard.py`
+- `tests/test_backtest_runner.py`
 - `tests/test_strategy_loader.py`
 
 ## 4. 当前数据目录中的样例文件
@@ -315,13 +337,19 @@ donkey/
 - 读取 `config/strategies/*.yaml` 和 normalized 数据
 - 输出到 `data/signals/...`
 
-第五步：后台查看与产物聚合
+第五步：回测执行
+
+- `src/backtest/run.py`
+- 读取 `config/strategies/*.yaml`、策略模块和 normalized 数据
+- 输出到 `data/backtests/...`
+
+第六步：后台查看与产物聚合
 
 - `src/admin/pairs_dashboard.py`
 - 聚合展示数据源、本地数据、策略信息和回测产物状态
 
-第六步：后续继续增强
+第七步：后续继续增强
 
 - 因子计算
-- 正式 backtest runner
+- 更细粒度回测撮合
 - experiment tracking

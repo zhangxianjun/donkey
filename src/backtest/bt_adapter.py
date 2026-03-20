@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
+from datetime import UTC
 from typing import Any
 
 from src.strategies.core import StrategyMetadata
@@ -40,7 +41,7 @@ def import_bt_modules() -> tuple[Any, Any]:
 
 
 def build_bt_frames(plan: TargetWeightPlan, pandas: Any) -> tuple[Any, Any]:
-    index = pandas.to_datetime(plan.weights_by_ts.keys(), utc=True)
+    index = pandas.to_datetime(list(plan.weights_by_ts.keys()), utc=True)
     open_rows: list[dict[str, float | None]] = []
     weight_rows: list[dict[str, float]] = []
 
@@ -84,9 +85,9 @@ def extract_result_equity_curve(
                 strategy_name=metadata.strategy_name,
                 strategy_version=metadata.strategy_version,
                 total_equity=float(total_equity),
-                cash=float("nan"),
-                market_value=float("nan"),
-                gross_exposure=float("nan"),
+                cash=0.0,
+                market_value=float(total_equity),
+                gross_exposure=1.0 if float(total_equity) > 0 else 0.0,
             )
         )
     return equity_curve
@@ -95,11 +96,8 @@ def extract_result_equity_curve(
 def pandas_timestamp_to_iso(value: Any) -> str:
     as_datetime = value.to_pydatetime() if hasattr(value, "to_pydatetime") else value
     if as_datetime.tzinfo is None:
-        as_datetime = as_datetime.replace(tzinfo=iso_to_datetime("1970-01-01T00:00:00Z").tzinfo)
-    return as_datetime.astimezone(iso_to_datetime("1970-01-01T00:00:00Z").tzinfo).isoformat().replace(
-        "+00:00",
-        "Z",
-    )
+        as_datetime = as_datetime.replace(tzinfo=UTC)
+    return as_datetime.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def build_trades_from_transactions(

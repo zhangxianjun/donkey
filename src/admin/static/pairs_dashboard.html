@@ -395,6 +395,34 @@
         display: grid;
       }
 
+      body.chart-page-mode .app-shell {
+        width: min(100vw - 24px, 100%);
+        grid-template-columns: minmax(0, 1fr);
+        padding-top: 18px;
+      }
+
+      body.chart-page-mode .sidebar {
+        display: none;
+      }
+
+      body.chart-page-mode .status-banner {
+        position: sticky;
+        top: 12px;
+        z-index: 3;
+      }
+
+      body.chart-page-mode .page:not(.active) {
+        display: none;
+      }
+
+      body.chart-page-mode .page.active:not([data-page-group="charting-library"]) {
+        display: none;
+      }
+
+      body.chart-page-mode .page[data-page-group="charting-library"].active {
+        display: grid;
+      }
+
       .metrics {
         display: grid;
         grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1810,17 +1838,19 @@
 
       function buildChartPageUrl({ dataVersion, interval, symbol }) {
         const params = new URLSearchParams();
-        params.set("page", "charting-library");
         params.set("data_version", dataVersion);
         params.set("interval", interval);
         params.set("symbol", symbol);
-        return `/?${params.toString()}`;
+        return `/chart?${params.toString()}`;
       }
 
       function initializeStateFromUrl() {
         const params = new URLSearchParams(window.location.search);
         const page = params.get("page");
-        if (page) {
+        if (window.location.pathname === "/chart") {
+          state.selectedPage = "charting-library";
+          document.body.classList.add("chart-page-mode");
+        } else if (page) {
           state.selectedPage = page;
         }
 
@@ -1856,6 +1886,9 @@
         "1d": "1D",
         "1w": "1W",
       };
+
+      const LOCAL_CHARTING_LIBRARY_BASE = "/charting_library/";
+      const LOCAL_CHARTING_LIBRARY_ENTRY = "/charting_library/charting_library.js";
 
       const RESOLUTION_TO_INTERVAL = Object.fromEntries(
         Object.entries(INTERVAL_TO_RESOLUTION).map(([interval, resolution]) => [resolution, interval])
@@ -2479,16 +2512,13 @@
           state.duckdbStatus.charting_library &&
           state.duckdbStatus.charting_library.bundle_exists
         );
+        if (els.chartLibraryPathInput) {
+          els.chartLibraryPathInput.value = LOCAL_CHARTING_LIBRARY_BASE;
+        }
         const symbolCount = state.duckdbSymbols.length;
         els.chartMeta.textContent = bundleExists
           ? `当前可用 symbol ${symbolCount} 个，bundle 已就绪。`
-          : "当前尚未检测到 Charting Library bundle，图表页会显示加载指引。";
-
-        if (!bundleExists) {
-          els.chartPlaceholder.style.display = "grid";
-          els.chartPlaceholderCopy.textContent = "请将官方 Charting Library bundle 放到 /charting_library/ 对应的静态目录后再加载图表。";
-          return;
-        }
+          : `当前可用 symbol ${symbolCount} 个，首次加载会自动缓存缺失的 Charting Library 静态资源。`;
 
         if (!state.selectedChartDataVersion || !state.selectedChartInterval || !state.selectedChartSymbol) {
           els.chartPlaceholder.style.display = "grid";
@@ -2498,7 +2528,7 @@
 
         if (state.chartLibraryLoadFailed) {
           els.chartPlaceholder.style.display = "grid";
-          els.chartPlaceholderCopy.textContent = "Charting Library bundle 加载失败，请确认 charting_library.js 是否存在且可被后台访问。";
+          els.chartPlaceholderCopy.textContent = "Charting Library 本地入口加载失败，请确认 /charting_library/ 可被后台访问。";
           return;
         }
 
@@ -2588,7 +2618,7 @@
           ["下载任务数", String(state.settings.download_job_count)],
           ["标准化任务数", String(state.settings.normalize_job_count)],
           ["DuckDB 装载任务数", String(state.settings.duckdb_load_job_count)],
-          ["Charting Bundle", state.settings.charting_library_bundle_exists ? "已就绪" : "缺失"],
+          ["Charting Bundle", state.settings.charting_library_bundle_exists ? "已就绪" : "按需缓存"],
         ];
 
         els.settingsGrid.innerHTML = settingsItems.map(([label, value]) => {
@@ -2928,10 +2958,18 @@
           const existingScript = document.querySelector('script[data-charting-library="true"]');
           if (existingScript) {
             existingScript.addEventListener("load", () => {
-              state.chartLibraryLoaded = true;
-              state.chartLibraryLoadFailed = false;
-              state.chartLoading = false;
-              resolve(true);
+              try {
+                const loaded = Boolean(window.TradingView && typeof window.TradingView.widget === "function");
+                state.chartLibraryLoaded = loaded;
+                state.chartLibraryLoadFailed = !loaded;
+                state.chartLoading = false;
+                resolve(loaded);
+              } catch (_error) {
+                state.chartLibraryLoaded = false;
+                state.chartLibraryLoadFailed = true;
+                state.chartLoading = false;
+                resolve(false);
+              }
             }, { once: true });
             existingScript.addEventListener("error", () => {
               state.chartLibraryLoaded = false;
@@ -2943,14 +2981,22 @@
           }
 
           const script = document.createElement("script");
-          script.src = "/charting_library/charting_library.js";
+          script.src = LOCAL_CHARTING_LIBRARY_ENTRY;
           script.async = true;
           script.dataset.chartingLibrary = "true";
           script.onload = () => {
-            state.chartLibraryLoaded = true;
-            state.chartLibraryLoadFailed = false;
-            state.chartLoading = false;
-            resolve(true);
+            try {
+              const loaded = Boolean(window.TradingView && typeof window.TradingView.widget === "function");
+              state.chartLibraryLoaded = loaded;
+              state.chartLibraryLoadFailed = !loaded;
+              state.chartLoading = false;
+              resolve(loaded);
+            } catch (_error) {
+              state.chartLibraryLoaded = false;
+              state.chartLibraryLoadFailed = true;
+              state.chartLoading = false;
+              resolve(false);
+            }
           };
           script.onerror = () => {
             state.chartLibraryLoaded = false;
@@ -3046,7 +3092,7 @@
           state.chartLibraryLoadFailed = true;
           destroyChartWidget();
           renderAll();
-          setStatus("Charting Library bundle 未就绪", true);
+          setStatus("Charting Library 本地入口加载失败，请检查 /charting_library/ 是否可访问。", true);
           return;
         }
 
@@ -3062,7 +3108,7 @@
         state.chartWidget = new window.TradingView.widget({
           container_id: "chartContainer",
           container: "chartContainer",
-          library_path: "/charting_library/",
+          library_path: LOCAL_CHARTING_LIBRARY_BASE,
           datafeed: makeDuckdbDatafeed(),
           symbol: state.selectedChartSymbol,
           interval: resolutionFromInterval(state.selectedChartInterval),

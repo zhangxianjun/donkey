@@ -13,6 +13,7 @@ from src.admin.pairs_dashboard import (
     DashboardConfig,
     DuckDBLoadJob,
     DownloadJob,
+    fetch_charting_library_asset,
     KlineDownloadRequest,
     LocalPair,
     NormalizeJob,
@@ -23,6 +24,19 @@ from src.admin.pairs_dashboard import (
 
 
 class PairsDashboardTests(unittest.TestCase):
+    class MockResponse:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def read(self) -> bytes:
+            return self._payload
+
+        def __enter__(self) -> "PairsDashboardTests.MockResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
     @staticmethod
     def serve_requests(server: PairAdminHTTPServer, request_count: int) -> None:
         for _ in range(request_count):
@@ -82,6 +96,37 @@ class PairsDashboardTests(unittest.TestCase):
         self.assertEqual(discovered[0].metadata_file_count, 1)
         self.assertEqual(discovered[0].checkpoint_count, 1)
         self.assertIsNotNone(discovered[0].last_updated)
+
+    def test_fetch_charting_library_asset_caches_remote_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            payload = b"console.log('chart');"
+
+            with patch(
+                "src.admin.pairs_dashboard.urlopen",
+                return_value=self.MockResponse(payload),
+            ) as mocked_urlopen:
+                asset_path = fetch_charting_library_asset("bundles/runtime.js", root=root, timeout_seconds=1.0)
+
+            self.assertEqual(asset_path, (root / "bundles" / "runtime.js").resolve())
+            self.assertEqual(asset_path.read_bytes(), payload)
+            request = mocked_urlopen.call_args.args[0]
+            self.assertEqual(
+                request.full_url,
+                "https://charting-library.tradingview-widget.com/charting_library/bundles/runtime.js",
+            )
+
+    def test_fetch_charting_library_asset_allows_empty_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            with patch(
+                "src.admin.pairs_dashboard.urlopen",
+                return_value=self.MockResponse(b""),
+            ):
+                asset_path = fetch_charting_library_asset("bundles/empty.css", root=root, timeout_seconds=1.0)
+
+            self.assertEqual(asset_path.read_bytes(), b"")
 
     def test_http_endpoints_expose_dashboard_resources(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

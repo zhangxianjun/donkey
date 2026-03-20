@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from src.ingestion.binance_ohlcv import (
@@ -61,6 +61,10 @@ DEFAULT_CURRENCY_ICON_ASSET = "DEFAULT"
 MAX_CURRENCY_ICON_BYTES = 2 * 1024 * 1024
 CHARTING_LIBRARY_STATIC_ROOT = Path(__file__).resolve().parent / "static" / "charting_library"
 CHARTING_LIBRARY_BUNDLE_PATH = CHARTING_LIBRARY_STATIC_ROOT / "charting_library.js"
+CHARTING_LIBRARY_SAMEORIGIN_PATH = CHARTING_LIBRARY_STATIC_ROOT / "sameorigin.html"
+CHARTING_LIBRARY_HOSTED_BASE_URL = "https://charting-library.tradingview-widget.com/charting_library/"
+CHARTING_LIBRARY_FETCH_TIMEOUT_SECONDS = 30.0
+CHARTING_LIBRARY_FETCH_LOCK = threading.Lock()
 DEFAULT_NORMALIZE_OUTPUT_FORMAT = "auto"
 SUPPORTED_NORMALIZE_SOURCES = {"binance"}
 ALLOWED_CURRENCY_ICON_EXTENSIONS = {
@@ -1125,11 +1129,84 @@ def parse_json_file(path: Path) -> Any:
         return None
 
 
+def resolve_charting_library_asset_path(
+    relative_path: str,
+    *,
+    root: Path = CHARTING_LIBRARY_STATIC_ROOT,
+) -> Path | None:
+    normalized = relative_path.strip().lstrip("/")
+    if not normalized:
+        return None
+
+    root_path = root.resolve()
+    candidate = (root_path / normalized).resolve()
+    try:
+        candidate.relative_to(root_path)
+    except ValueError:
+        return None
+    return candidate
+
+
+def charting_library_asset_exists(path: Path) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def charting_library_asset_url(relative_path: str) -> str:
+    normalized = relative_path.strip().lstrip("/")
+    return f"{CHARTING_LIBRARY_HOSTED_BASE_URL}{quote(normalized, safe='/._-')}"
+
+
+def fetch_charting_library_asset(
+    relative_path: str,
+    *,
+    root: Path = CHARTING_LIBRARY_STATIC_ROOT,
+    timeout_seconds: float = CHARTING_LIBRARY_FETCH_TIMEOUT_SECONDS,
+) -> Path:
+    target_path = resolve_charting_library_asset_path(relative_path, root=root)
+    if target_path is None:
+        raise ValueError("Invalid Charting Library asset path.")
+
+    if charting_library_asset_exists(target_path):
+        return target_path
+
+    request = Request(
+        charting_library_asset_url(relative_path),
+        headers={"User-Agent": "donkey-admin/1.0"},
+    )
+
+    with CHARTING_LIBRARY_FETCH_LOCK:
+        if charting_library_asset_exists(target_path):
+            return target_path
+
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = target_path.with_name(f".{target_path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with urlopen(request, timeout=timeout_seconds) as response:
+                payload = response.read()
+            temp_path.write_bytes(payload)
+            temp_path.replace(target_path)
+        except Exception:
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except OSError:
+                pass
+            raise
+
+    return target_path
+
+
 def charting_library_status() -> dict[str, Any]:
     return {
         "root": str(CHARTING_LIBRARY_STATIC_ROOT),
         "bundle_path": str(CHARTING_LIBRARY_BUNDLE_PATH),
-        "bundle_exists": CHARTING_LIBRARY_BUNDLE_PATH.is_file(),
+        "sameorigin_path": str(CHARTING_LIBRARY_SAMEORIGIN_PATH),
+        "bundle_exists": charting_library_asset_exists(CHARTING_LIBRARY_BUNDLE_PATH),
+        "sameorigin_exists": charting_library_asset_exists(CHARTING_LIBRARY_SAMEORIGIN_PATH),
+        "auto_cache_enabled": True,
         "fetched_at": utc_now_iso(),
     }
 
@@ -2431,7 +2508,7 @@ class DuckDBLoadJobRegistry:
         try:
             duckdb = warehouse_load_duckdb.import_duckdb(repo_root=self._config.workspace_root)
             self._config.quant_db_path.parent.mkdir(parents=True, exist_ok=True)
-            init_sql_path = DEFAULT_INIT_SQL_PATH.expanduser().resolve()
+            init_sql_path = warehouse_load_duckdb.DEFAULT_INIT_SQL_PATH.expanduser().resolve()
             if not init_sql_path.exists():
                 raise RuntimeError(f"Init SQL not found: {init_sql_path}")
 
@@ -2497,7 +2574,7 @@ class PairAdminHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
-        if parsed.path == "/":
+        if parsed.path in {"/", "/chart"}:
             self.respond_html(cached_index_html())
             return
         if parsed.path in {"/icon.svg", "/favicon.svg", "/favicon.ico"}:
@@ -2741,7 +2818,7 @@ class PairAdminHandler(BaseHTTPRequestHandler):
                 "duckdb_load_job_count": len(self.server.duckdb_load_jobs.list_jobs()),
                 "charting_library_root": str(CHARTING_LIBRARY_STATIC_ROOT),
                 "charting_library_bundle_path": str(CHARTING_LIBRARY_BUNDLE_PATH),
-                "charting_library_bundle_exists": CHARTING_LIBRARY_BUNDLE_PATH.is_file(),
+                "charting_library_bundle_exists": charting_library_asset_exists(CHARTING_LIBRARY_BUNDLE_PATH),
                 "fetched_at": utc_now_iso(),
             }
         )
@@ -2923,26 +3000,37 @@ class PairAdminHandler(BaseHTTPRequestHandler):
 
     def handle_charting_library_file(self, raw_path: str) -> None:
         relative_path = raw_path.removeprefix("/charting_library/").strip("/")
-        if not relative_path:
+        requested_path = resolve_charting_library_asset_path(relative_path)
+        if requested_path is None:
             self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
             return
 
-        requested_path = (CHARTING_LIBRARY_STATIC_ROOT / relative_path).resolve()
-        try:
-            requested_path.relative_to(CHARTING_LIBRARY_STATIC_ROOT.resolve())
-        except ValueError:
-            self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
-            return
-
-        if not requested_path.is_file():
-            self.respond_json(
-                {
-                    "error": "Charting Library bundle not found.",
-                    "bundle_path": str(CHARTING_LIBRARY_BUNDLE_PATH),
-                },
-                status=HTTPStatus.NOT_FOUND,
-            )
-            return
+        if not charting_library_asset_exists(requested_path):
+            try:
+                requested_path = fetch_charting_library_asset(relative_path)
+            except ValueError:
+                self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+                return
+            except HTTPError as exc:
+                self.respond_json(
+                    {
+                        "error": f"Failed to fetch Charting Library asset: upstream returned HTTP {exc.code}.",
+                        "asset_path": relative_path,
+                        "upstream_url": charting_library_asset_url(relative_path),
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
+            except (URLError, OSError, ValueError) as exc:
+                self.respond_json(
+                    {
+                        "error": f"Failed to fetch Charting Library asset: {exc}",
+                        "asset_path": relative_path,
+                        "upstream_url": charting_library_asset_url(relative_path),
+                    },
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
 
         self.respond_file(requested_path, cache_control="public, max-age=3600")
 

@@ -58,6 +58,10 @@
   支持 YAML 策略定义和 Python 模块热加载。
 - 信号生成
   根据 normalized 数据和策略配置生成信号产物。
+- 原生回测执行
+  使用 `next_bar_open + equal_weight_active` 模型输出 `summary / trades / equity`。
+- 成熟库适配
+  可选接入 [`bt`](https://pmorissette.github.io/bt/) 作为外部组合回测引擎。
 - 回测产物展示
   自动识别 `summary / trades / equity` 文件是否存在，并在后台展示状态和基础指标。
 - 系统管理后台
@@ -149,6 +153,25 @@ python3 -m src.strategies.run \
   --symbols BTCUSDT ETHUSDT
 ```
 
+运行回测：
+
+```bash
+python3 -m src.backtest.run \
+  --strategy config/strategies/atr_trailing_v1.yaml \
+  --input data/normalized/v1/market_ohlcv_1d.parquet \
+  --symbols BTCUSDT ETHUSDT
+```
+
+如果你想切到成熟组合回测库 `bt`：
+
+```bash
+python3 -m pip install bt pandas
+python3 -m src.backtest.run \
+  --strategy config/strategies/atr_trailing_v1.yaml \
+  --input data/normalized/v1/market_ohlcv_1d.parquet \
+  --engine bt
+```
+
 更详细的操作流程见：
 
 - [How To Use](./docs/HOW_TO_USE.md)
@@ -192,6 +215,8 @@ flowchart LR
   装载层，把 normalized 数据按版本导入 DuckDB。
 - `src/strategies/run.py`
   策略信号层，读取策略配置与策略模块，输出信号文件。
+- `src/backtest/run.py`
+  回测执行层，读取策略配置、策略模块与 normalized 数据，输出 summary / trades / equity。
 - `src/admin/pairs_dashboard.py`
   管理后台，负责浏览数据源、本地数据、策略、回测记录与系统信息。
 
@@ -238,14 +263,14 @@ flowchart LR
 
 - 多源支持目前主要覆盖交易对浏览和本地研究清单管理
 - 已落地的 raw K 线下载器当前是 Binance
-- 平台已经能展示回测产物，但完整回测执行器仍适合在现有结构上继续补
+- 平台已经内置轻量回测执行器和可选 `bt` 适配层，但还不是订单级高保真撮合器
 - 平台当前定位是本地单机研究控制台，而不是多用户 SaaS
 
 ## Roadmap
 
 - 增加 OKX / Bybit / Hyperliquid 原始数据采集器
 - 增加 factor layer 和统一因子产物
-- 增加正式 backtest runner
+- 增强 backtest runner，补充更细粒度订单撮合和组合约束
 - 增加 experiment tracking 和参数对比
 - 增加 CI、格式检查、发布流程和版本标签
 - 增加仓库内嵌截图和示例数据
