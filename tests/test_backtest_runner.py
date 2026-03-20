@@ -8,6 +8,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from src.backtest.backtrader_adapter import run_backtrader_backtest
 from src.backtest.bt_adapter import run_bt_backtest
 from src.backtest.core import build_target_weight_plan, load_backtest_settings
 from src.backtest.run import main as backtest_main
@@ -15,6 +16,7 @@ from src.strategies.loader import ReloadableStrategyLoader
 from src.strategies.run import read_market_bars
 
 HAS_BT = importlib.util.find_spec("bt") is not None
+HAS_BACKTRADER = importlib.util.find_spec("backtrader") is not None
 HAS_PANDAS = importlib.util.find_spec("pandas") is not None
 
 
@@ -135,6 +137,51 @@ class BacktestRunnerTests(unittest.TestCase):
                     os.environ["MPLCONFIGDIR"] = previous_mplconfigdir
 
             self.assertEqual(result.summary["engine"], "bt")
+            self.assertEqual(result.summary["trade_count"], 1)
+            self.assertEqual(len(result.trades), 1)
+            self.assertGreater(len(result.equity_curve), 0)
+
+    def test_backtrader_engine_dependency_or_execution_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            input_path = workspace / "market.jsonl"
+            module_path = workspace / "demo_strategy.py"
+            config_path = workspace / "demo_strategy.yaml"
+
+            self.write_market_data(input_path)
+            self.write_strategy_module(module_path)
+            self.write_strategy_config(
+                config_path,
+                module_path=module_path,
+                signal_path=workspace / "signals.jsonl",
+                trades_path=workspace / "trades.jsonl",
+                equity_path=workspace / "equity.jsonl",
+                summary_path=workspace / "summary.json",
+            )
+
+            loader = ReloadableStrategyLoader(config_path)
+            bars = read_market_bars(input_path, symbols=None)
+            strategy = loader.get_strategy()
+            signals = strategy.generate_signals(bars)
+            settings = load_backtest_settings(loader.definition.config, engine_override="backtrader")
+            plan = build_target_weight_plan(bars, signals, settings)
+
+            if not (HAS_BACKTRADER and HAS_PANDAS):
+                with self.assertRaises(RuntimeError):
+                    run_backtrader_backtest(
+                        plan,
+                        metadata=loader.definition.metadata,
+                        settings=settings,
+                    )
+                return
+
+            result = run_backtrader_backtest(
+                plan,
+                metadata=loader.definition.metadata,
+                settings=settings,
+            )
+
+            self.assertEqual(result.summary["engine"], "backtrader")
             self.assertEqual(result.summary["trade_count"], 1)
             self.assertEqual(len(result.trades), 1)
             self.assertGreater(len(result.equity_curve), 0)

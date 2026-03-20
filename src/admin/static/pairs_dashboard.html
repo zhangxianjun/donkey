@@ -372,6 +372,12 @@
         box-shadow: none;
       }
 
+      .button-ghost {
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.04);
+        border-color: rgba(240, 185, 11, 0.18);
+      }
+
       .status-line {
         display: inline-flex;
         align-items: center;
@@ -821,6 +827,209 @@
         word-break: break-all;
       }
 
+      .report-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: start;
+      }
+
+      .report-empty {
+        margin-top: 16px;
+        min-height: 220px;
+        display: grid;
+        place-items: center;
+        border: 1px dashed rgba(240, 185, 11, 0.22);
+        border-radius: 18px;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.02);
+        text-align: center;
+        padding: 24px;
+      }
+
+      .report-shell {
+        display: grid;
+        gap: 16px;
+        margin-top: 16px;
+      }
+
+      .report-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) 320px;
+        gap: 14px;
+        padding: 18px;
+        border: 1px solid rgba(240, 185, 11, 0.16);
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(25, 30, 37, 0.98), rgba(16, 20, 25, 0.98));
+      }
+
+      .report-kicker {
+        margin: 0 0 8px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: var(--accent);
+      }
+
+      .report-title {
+        margin: 0;
+        font-size: 24px;
+        letter-spacing: -0.03em;
+      }
+
+      .report-copy {
+        margin: 10px 0 0;
+        font-size: 13px;
+        line-height: 1.7;
+        color: #a8b1bc;
+      }
+
+      .report-aside {
+        display: grid;
+        gap: 10px;
+      }
+
+      .report-badge-grid {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .report-path {
+        font-family: "SFMono-Regular", "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 12px;
+        line-height: 1.7;
+        color: #cbd2db;
+        word-break: break-all;
+      }
+
+      .report-metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .report-metric-card {
+        border: 1px solid rgba(71, 77, 87, 0.42);
+        border-radius: 16px;
+        padding: 16px;
+        background: #161a1e;
+      }
+
+      .report-metric-label {
+        margin: 0 0 8px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: var(--muted);
+      }
+
+      .report-metric-value {
+        margin: 0;
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: var(--ink);
+      }
+
+      .report-metric-note {
+        margin-top: 6px;
+        font-size: 12px;
+        line-height: 1.6;
+        color: #98a1ad;
+      }
+
+      .report-chart-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .report-chart-card,
+      .report-detail-card {
+        border: 1px solid rgba(71, 77, 87, 0.42);
+        border-radius: 18px;
+        padding: 16px;
+        background: #161a1e;
+      }
+
+      .report-chart-head,
+      .report-detail-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: start;
+      }
+
+      .report-chart-frame {
+        margin-top: 14px;
+        border-radius: 14px;
+        overflow: hidden;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          #101418;
+        background-size: 40px 40px;
+        border: 1px solid rgba(71, 77, 87, 0.32);
+      }
+
+      .report-chart-svg {
+        width: 100%;
+        height: 220px;
+        display: block;
+      }
+
+      .report-chart-line {
+        fill: none;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .report-chart-fill {
+        opacity: 0.16;
+      }
+
+      .report-detail-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .report-detail-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .report-detail-item {
+        border: 1px solid rgba(71, 77, 87, 0.32);
+        border-radius: 14px;
+        padding: 14px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .report-artifact-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .report-artifact-item {
+        border: 1px solid rgba(71, 77, 87, 0.32);
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .report-artifact-label {
+        margin: 0 0 6px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: var(--muted);
+      }
+
       .currency-icon-grid {
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -912,6 +1121,13 @@
         }
 
         .hero-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .report-hero,
+        .report-metrics-grid,
+        .report-chart-grid,
+        .report-detail-grid {
           grid-template-columns: 1fr;
         }
 
@@ -1490,7 +1706,7 @@
               <div>
                 <p class="page-kicker">2.1 策略展示</p>
                 <h2>策略展示</h2>
-                <p class="page-subtitle">展示策略配置、Universe 和回测参数摘要。</p>
+                <p class="page-subtitle">展示策略配置、默认引擎、可用数据输入，并支持直接触发回测运行。</p>
               </div>
             </div>
             <article class="card">
@@ -1500,15 +1716,21 @@
                     <thead>
                       <tr>
                         <th>策略</th>
-                        <th>Universe</th>
-                        <th>回测区间</th>
-                        <th>产物</th>
+                        <th>数据输入</th>
+                        <th>回测设定</th>
+                        <th>运行</th>
+                        <th>状态</th>
                       </tr>
                     </thead>
                     <tbody id="strategyRows"></tbody>
                   </table>
                 </div>
               </div>
+            </article>
+            <article class="card">
+              <h3>回测任务</h3>
+              <p class="page-subtitle" id="backtestJobsMeta">回测任务尚未加载。</p>
+              <div class="job-list" id="backtestJobsList"></div>
             </article>
           </section>
 
@@ -1517,7 +1739,7 @@
               <div>
                 <p class="page-kicker">2.2 回测记录</p>
                 <h2>回测记录</h2>
-                <p class="page-subtitle">读取回测 summary / trades / equity 产物存在情况。</p>
+                <p class="page-subtitle">按运行记录查看 summary / trades / equity 产物，并展开完整回测报告。</p>
               </div>
             </div>
             <article class="card">
@@ -1526,16 +1748,27 @@
                   <table>
                     <thead>
                       <tr>
+                        <th>运行</th>
                         <th>策略</th>
                         <th>状态</th>
-                        <th>产物</th>
+                        <th>摘要</th>
                         <th>更新时间</th>
+                        <th>操作</th>
                       </tr>
                     </thead>
                     <tbody id="backtestRows"></tbody>
                   </table>
                 </div>
               </div>
+            </article>
+            <article class="card">
+              <div class="report-header">
+                <div>
+                  <h3>回测报告</h3>
+                  <p class="page-subtitle" id="backtestReportMeta">选择一条已完成的回测记录查看报告。</p>
+                </div>
+              </div>
+              <div id="backtestReportBody" class="report-empty">还没有选中回测记录。</div>
             </article>
           </section>
 
@@ -1622,6 +1855,10 @@
         localMeta: null,
         strategies: [],
         backtests: [],
+        backtestJobs: [],
+        backtestJobsMeta: null,
+        selectedBacktestRecordId: "",
+        backtestReport: null,
         settings: null,
         currencyIcons: [],
         currencyIconMeta: null,
@@ -1673,6 +1910,10 @@
         localRows: document.getElementById("localRows"),
         strategyRows: document.getElementById("strategyRows"),
         backtestRows: document.getElementById("backtestRows"),
+        backtestJobsMeta: document.getElementById("backtestJobsMeta"),
+        backtestJobsList: document.getElementById("backtestJobsList"),
+        backtestReportMeta: document.getElementById("backtestReportMeta"),
+        backtestReportBody: document.getElementById("backtestReportBody"),
         settingsGrid: document.getElementById("settingsGrid"),
         currencyIconSummary: document.getElementById("currencyIconSummary"),
         currencyIconGrid: document.getElementById("currencyIconGrid"),
@@ -1769,6 +2010,48 @@
         return date.toLocaleString("zh-CN", { hour12: false });
       }
 
+      function formatNumber(value, digits = 2) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+          return "未记录";
+        }
+        return Number(value).toLocaleString("zh-CN", {
+          minimumFractionDigits: digits,
+          maximumFractionDigits: digits,
+        });
+      }
+
+      function formatMoney(value) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+          return "未记录";
+        }
+        return `\$${formatNumber(value, Math.abs(Number(value)) >= 1000 ? 0 : 2)}`;
+      }
+
+      function formatPct(value, digits = 2) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+          return "未记录";
+        }
+        return `${formatNumber(Number(value) * 100, digits)}%`;
+      }
+
+      function formatRatio(value, digits = 2) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+          return "未记录";
+        }
+        return formatNumber(value, digits);
+      }
+
+      function shortPath(value) {
+        if (!value) {
+          return "未配置";
+        }
+        const normalized = String(value);
+        if (normalized.length <= 56) {
+          return normalized;
+        }
+        return `${normalized.slice(0, 20)} ... ${normalized.slice(-28)}`;
+      }
+
       function setStatus(text, isError = false) {
         if (!els.statusLine) {
           return;
@@ -1820,6 +2103,14 @@
 
       function activeJobs() {
         return state.jobs.filter((job) => job.status === "queued" || job.status === "running");
+      }
+
+      function activeBacktestJobs() {
+        return state.backtestJobs.filter((job) => job.status === "queued" || job.status === "running");
+      }
+
+      function backtestStatusClass(status) {
+        return status === "ready" || status === "succeeded" ? "status-ready" : "status-pending";
       }
 
       function computeJobSignature(jobs) {
@@ -2541,18 +2832,74 @@
         els.chartPlaceholder.style.display = "none";
       }
 
-      function renderStrategies() {
-        if (state.strategies.length === 0) {
-          els.strategyRows.innerHTML = '<tr><td class="empty" colspan="4">还没有策略配置</td></tr>';
+      function renderBacktestJobs() {
+        if (!state.backtestJobsMeta) {
+          els.backtestJobsMeta.textContent = "回测任务尚未加载。";
+        } else {
+          els.backtestJobsMeta.textContent = `共 ${state.backtestJobsMeta.count} 个任务，运行中 ${activeBacktestJobs().length} 个`;
+        }
+
+        if (state.backtestJobs.length === 0) {
+          els.backtestJobsList.innerHTML = '<div class="empty">还没有回测任务</div>';
           return;
         }
 
+        els.backtestJobsList.innerHTML = state.backtestJobs.slice(0, 8).map((job) => {
+          const detail = [
+            job.engine,
+            job.data_version || "未知 data_version",
+            job.interval || "未知周期",
+          ].join(" | ");
+          const metricText = job.metrics
+            ? `收益 ${formatPct(job.metrics.total_return)} / 交易 ${job.metrics.trade_count ?? "未记录"}`
+            : "指标待生成";
+          return `
+            <article class="job-card">
+              <div class="job-head">
+                <div class="symbol-cell">
+                  <div class="symbol-main">${escapeHtml(job.strategy_name)} / ${escapeHtml(job.strategy_version)}</div>
+                  <div class="subline">${escapeHtml(detail)}</div>
+                </div>
+                <span class="pill job-${job.status}">${escapeHtml(job.status.toUpperCase())}</span>
+              </div>
+              <div class="subline">run_id ${escapeHtml(job.run_id)}</div>
+              <div class="subline">${escapeHtml(shortPath(job.input_path))}</div>
+              <div class="subline">${escapeHtml(metricText)}</div>
+              ${job.error ? `<div class="subline">错误: ${escapeHtml(job.error)}</div>` : ""}
+            </article>
+          `;
+        }).join("");
+      }
+
+      function renderStrategies() {
+        if (state.strategies.length === 0) {
+          els.strategyRows.innerHTML = '<tr><td class="empty" colspan="5">还没有策略配置</td></tr>';
+          return;
+        }
+
+        const activeBacktestKeys = new Set(
+          activeBacktestJobs().map((job) => `${job.strategy_id}:${job.engine}`)
+        );
         els.strategyRows.innerHTML = state.strategies.map((strategy) => {
           const symbolText = strategy.symbols && strategy.symbols.length ? strategy.symbols.join(", ") : "未配置";
-          const artifactText = [
-            strategy.summary_exists ? "summary 已生成" : "summary 未生成",
-            strategy.trades_path ? "trades 已配置" : "trades 未配置",
-            strategy.equity_path ? "equity 已配置" : "equity 未配置",
+          const runButtons = ["native", "bt", "backtrader"].map((engine) => {
+            const active = activeBacktestKeys.has(`${strategy.strategy_id}:${engine}`);
+            const disabled = !strategy.input_exists || active;
+            const isDefault = strategy.configured_engine === engine;
+            return `
+              <button
+                class="${isDefault ? "button-small" : "button-secondary button-small"}"
+                type="button"
+                data-action="run-backtest"
+                data-strategy-path="${escapeHtml(strategy.strategy_path)}"
+                data-engine="${escapeHtml(engine)}"
+                ${disabled ? "disabled" : ""}
+              >${active ? "运行中" : (isDefault ? `${engine} 默认` : engine)}</button>
+            `;
+          }).join("");
+          const statusText = [
+            strategy.summary_exists ? "已有固定产物" : "还没有固定产物",
+            strategy.input_exists ? "输入已就绪" : "输入缺失",
           ].join(" | ");
           return `
             <tr>
@@ -2562,41 +2909,321 @@
                   <div class="subline">${escapeHtml(strategy.description || "无描述")}</div>
                 </div>
               </td>
-              <td class="subline">${escapeHtml(strategy.exchange || "-")} / ${escapeHtml(strategy.market_type || "-")} / ${escapeHtml(strategy.interval || "-")}<br />${escapeHtml(symbolText)}</td>
-              <td class="subline">${escapeHtml(strategy.backtest_start || "-")} → ${escapeHtml(strategy.backtest_end || "-")}</td>
-              <td class="subline">${escapeHtml(artifactText)}</td>
+              <td class="subline">
+                <span class="pill ${strategy.input_exists ? "good" : "warn"}">${strategy.input_exists ? "READY" : "MISSING"}</span><br />
+                ${escapeHtml(strategy.data_version || "-")} / ${escapeHtml(strategy.interval || "-")}<br />
+                ${escapeHtml(shortPath(strategy.input_path))}
+              </td>
+              <td class="subline">
+                ${escapeHtml(strategy.exchange || "-")} / ${escapeHtml(strategy.market_type || "-")}<br />
+                引擎 ${escapeHtml(strategy.configured_engine || "native")}<br />
+                ${escapeHtml(strategy.backtest_start || "-")} → ${escapeHtml(strategy.backtest_end || "-")}<br />
+                ${escapeHtml(symbolText)}
+              </td>
+              <td><div class="pill-row">${runButtons}</div></td>
+              <td class="subline">${escapeHtml(statusText)}</td>
             </tr>
           `;
         }).join("");
       }
 
+      function buildBacktestSummaryText(record) {
+        if (!record.metrics) {
+          return "暂无指标";
+        }
+        const parts = [];
+        if (record.engine) {
+          parts.push(`engine ${record.engine}`);
+        }
+        if (record.metrics.total_return !== undefined) {
+          parts.push(`收益 ${formatPct(record.metrics.total_return)}`);
+        }
+        if (record.metrics.max_drawdown !== undefined) {
+          parts.push(`回撤 ${formatPct(record.metrics.max_drawdown)}`);
+        }
+        if (record.metrics.sharpe !== undefined) {
+          parts.push(`Sharpe ${formatRatio(record.metrics.sharpe)}`);
+        }
+        if (record.metrics.trade_count !== undefined) {
+          parts.push(`交易 ${record.metrics.trade_count}`);
+        }
+        return parts.join(" | ");
+      }
+
       function renderBacktests() {
         if (state.backtests.length === 0) {
-          els.backtestRows.innerHTML = '<tr><td class="empty" colspan="4">还没有回测记录</td></tr>';
+          els.backtestRows.innerHTML = '<tr><td class="empty" colspan="6">还没有回测记录</td></tr>';
           return;
         }
 
         els.backtestRows.innerHTML = state.backtests.map((record) => {
-          const metrics = record.metrics ? JSON.stringify(record.metrics) : "暂无指标";
           const artifactText = [
             `summary ${record.summary_exists ? "yes" : "no"}`,
             `trades ${record.trades_exists ? "yes" : "no"}`,
             `equity ${record.equity_exists ? "yes" : "no"}`,
           ].join(" | ");
+          const selected = state.selectedBacktestRecordId === record.record_id;
+          const runLabel = record.run_id ? record.run_id : "固定产物";
           return `
-            <tr>
+            <tr ${selected ? 'style="background: rgba(240, 185, 11, 0.08);"' : ""}>
+              <td class="subline">${escapeHtml(runLabel)}<br />${escapeHtml(record.engine || "-")}</td>
               <td>
                 <div class="symbol-cell">
                   <div class="symbol-main">${escapeHtml(record.strategy_name)} / ${escapeHtml(record.strategy_version)}</div>
-                  <div class="subline">指标摘要 ${record.metrics ? "已生成" : "待生成"}</div>
+                  <div class="subline">${escapeHtml(shortPath(record.input_path))}</div>
                 </div>
               </td>
-              <td><span class="pill ${record.status === "ready" ? "status-ready" : "status-pending"}">${escapeHtml(record.status.toUpperCase())}</span></td>
-              <td class="subline">${escapeHtml(artifactText)}<br />${escapeHtml(metrics)}</td>
+              <td>
+                <span class="pill ${backtestStatusClass(record.status)}">${escapeHtml(record.status.toUpperCase())}</span>
+                ${record.error ? `<div class="subline">错误: ${escapeHtml(record.error)}</div>` : ""}
+              </td>
+              <td class="subline">${escapeHtml(buildBacktestSummaryText(record))}<br />${escapeHtml(artifactText)}</td>
               <td class="subline">${escapeHtml(formatTime(record.updated_at))}</td>
+              <td class="pill-row">
+                <button
+                  class="button-ghost button-small"
+                  type="button"
+                  data-action="view-backtest-report"
+                  data-record-id="${escapeHtml(record.record_id)}"
+                  ${record.report_available ? "" : "disabled"}
+                >${selected ? "已选中" : "查看报告"}</button>
+              </td>
             </tr>
           `;
         }).join("");
+      }
+
+      function buildChartSvg(points, valueKey, lineColor, fillColor) {
+        const width = 720;
+        const height = 220;
+        if (!points || points.length === 0) {
+          return `<div class="report-empty">暂无曲线数据</div>`;
+        }
+        const values = points
+          .map((item) => Number(item[valueKey]))
+          .filter((item) => Number.isFinite(item));
+        if (values.length === 0) {
+          return `<div class="report-empty">暂无曲线数据</div>`;
+        }
+
+        const minValue = Math.min(...values);
+        const maxValue = Math.max(...values);
+        const range = maxValue - minValue || Math.max(Math.abs(maxValue), 1);
+        const toCoordinate = (value, index, total) => {
+          const x = total <= 1 ? 0 : (index / (total - 1)) * width;
+          const y = height - ((Number(value) - minValue) / range) * (height - 18) - 9;
+          return [x, y];
+        };
+
+        const coordinates = points.map((point, index) => toCoordinate(point[valueKey], index, points.length));
+        const path = coordinates.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
+        const area = `${path} L ${width} ${height} L 0 ${height} Z`;
+        return `
+          <svg class="report-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+            <path class="report-chart-fill" d="${area}" fill="${fillColor}"></path>
+            <path class="report-chart-line" d="${path}" stroke="${lineColor}"></path>
+          </svg>
+        `;
+      }
+
+      function renderBacktestReport() {
+        if (!state.selectedBacktestRecordId) {
+          els.backtestReportMeta.textContent = "选择一条已完成的回测记录查看报告。";
+          els.backtestReportBody.className = "report-empty";
+          els.backtestReportBody.innerHTML = "还没有选中回测记录。";
+          return;
+        }
+
+        if (!state.backtestReport) {
+          els.backtestReportMeta.textContent = "正在加载回测报告...";
+          els.backtestReportBody.className = "report-empty";
+          els.backtestReportBody.innerHTML = "正在加载回测报告...";
+          return;
+        }
+
+        const report = state.backtestReport;
+        const record = report.record || {};
+        const metrics = report.metrics || {};
+        const trades = report.trades || {};
+        const points = report.equity && Array.isArray(report.equity.points) ? report.equity.points : [];
+        const artifactRows = Array.isArray(report.artifacts) ? report.artifacts : [];
+
+        els.backtestReportMeta.textContent = `${record.strategy_name || "-"} / ${record.strategy_version || "-"} | ${record.engine || "-"} | 更新时间 ${formatTime(record.updated_at)}`;
+        els.backtestReportBody.className = "";
+        els.backtestReportBody.innerHTML = `
+          <div class="report-shell">
+            <section class="report-hero">
+              <div>
+                <p class="report-kicker">Backtest Report</p>
+                <h3 class="report-title">${escapeHtml(record.strategy_name || "-")} / ${escapeHtml(record.strategy_version || "-")}</h3>
+                <p class="report-copy">
+                  状态 ${escapeHtml(record.status || "-")}，输入 ${escapeHtml(shortPath(record.input_path))}。<br />
+                  区间 ${escapeHtml(report.summary && report.summary.start_date ? report.summary.start_date : "-")} → ${escapeHtml(report.summary && report.summary.end_date ? report.summary.end_date : "-")}
+                </p>
+              </div>
+              <div class="report-aside">
+                <div class="report-badge-grid">
+                  <span class="pill ${backtestStatusClass(record.status)}">${escapeHtml(String(record.status || "-").toUpperCase())}</span>
+                  <span class="pill info">${escapeHtml(record.engine || "-")}</span>
+                  <span class="pill ${record.run_id ? "good" : "warn"}">${record.run_id ? "RUN" : "STATIC"}</span>
+                </div>
+                <div class="report-path">run_id ${escapeHtml(record.run_id || "固定产物")}</div>
+                <div class="report-path">报告生成 ${escapeHtml(formatTime(report.report_generated_at))}</div>
+                ${record.error ? `<div class="report-path">错误 ${escapeHtml(record.error)}</div>` : ""}
+              </div>
+            </section>
+
+            <section class="report-metrics-grid">
+              <article class="report-metric-card">
+                <p class="report-metric-label">Total Return</p>
+                <p class="report-metric-value">${escapeHtml(formatPct(metrics.total_return))}</p>
+                <div class="report-metric-note">最终权益 ${escapeHtml(formatMoney(metrics.final_equity))}</div>
+              </article>
+              <article class="report-metric-card">
+                <p class="report-metric-label">Max Drawdown</p>
+                <p class="report-metric-value">${escapeHtml(formatPct(metrics.max_drawdown))}</p>
+                <div class="report-metric-note">当前回撤 ${escapeHtml(formatPct(metrics.latest_drawdown))}</div>
+              </article>
+              <article class="report-metric-card">
+                <p class="report-metric-label">Sharpe / PF</p>
+                <p class="report-metric-value">${escapeHtml(formatRatio(metrics.sharpe))}</p>
+                <div class="report-metric-note">Profit Factor ${escapeHtml(formatRatio(metrics.profit_factor))}</div>
+              </article>
+              <article class="report-metric-card">
+                <p class="report-metric-label">Trades / Win Rate</p>
+                <p class="report-metric-value">${escapeHtml(String(metrics.trade_count ?? 0))}</p>
+                <div class="report-metric-note">胜率 ${escapeHtml(formatPct(report.summary ? report.summary.win_rate : null))}</div>
+              </article>
+              <article class="report-metric-card">
+                <p class="report-metric-label">CAGR</p>
+                <p class="report-metric-value">${escapeHtml(formatPct(metrics.cagr))}</p>
+                <div class="report-metric-note">初始资金 ${escapeHtml(formatMoney(metrics.initial_capital))}</div>
+              </article>
+              <article class="report-metric-card">
+                <p class="report-metric-label">Avg Net PnL</p>
+                <p class="report-metric-value">${escapeHtml(formatMoney(metrics.avg_net_pnl))}</p>
+                <div class="report-metric-note">平均收益 ${escapeHtml(formatPct(metrics.avg_return_pct))}</div>
+              </article>
+              <article class="report-metric-card">
+                <p class="report-metric-label">Avg Hold</p>
+                <p class="report-metric-value">${escapeHtml(formatNumber(metrics.avg_bars_held, 1))}</p>
+                <div class="report-metric-note">bars / 峰值权益 ${escapeHtml(formatMoney(metrics.peak_equity))}</div>
+              </article>
+              <article class="report-metric-card">
+                <p class="report-metric-label">Trade Split</p>
+                <p class="report-metric-value">${escapeHtml(String(trades.wins ?? 0))} / ${escapeHtml(String(trades.losses ?? 0))}</p>
+                <div class="report-metric-note">胜 / 负</div>
+              </article>
+            </section>
+
+            <section class="report-chart-grid">
+              <article class="report-chart-card">
+                <div class="report-chart-head">
+                  <div>
+                    <h3>权益曲线</h3>
+                    <p class="page-subtitle">按回测时间线展示总权益变化。</p>
+                  </div>
+                  <span class="pill info">${escapeHtml(String(report.equity ? report.equity.point_count : 0))} 点</span>
+                </div>
+                <div class="report-chart-frame">${buildChartSvg(points, "total_equity", "#f0b90b", "rgba(240, 185, 11, 0.45)")}</div>
+              </article>
+              <article class="report-chart-card">
+                <div class="report-chart-head">
+                  <div>
+                    <h3>回撤曲线</h3>
+                    <p class="page-subtitle">从权益峰值回撤到当前的深度变化。</p>
+                  </div>
+                  <span class="pill warn">${escapeHtml(formatPct(metrics.max_drawdown))}</span>
+                </div>
+                <div class="report-chart-frame">${buildChartSvg(points, "drawdown", "#f6465d", "rgba(246, 70, 93, 0.38)")}</div>
+              </article>
+            </section>
+
+            <section class="report-detail-grid">
+              <article class="report-detail-card">
+                <div class="report-detail-head">
+                  <div>
+                    <h3>交易拆解</h3>
+                    <p class="page-subtitle">用胜负、均值和极值快速判断策略质量。</p>
+                  </div>
+                </div>
+                <div class="report-detail-list">
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">最佳交易</div>
+                    <div class="symbol-main">${escapeHtml(trades.best_trade && trades.best_trade.symbol ? trades.best_trade.symbol : "未记录")}</div>
+                    <div class="subline">净收益 ${escapeHtml(formatMoney(trades.best_trade ? trades.best_trade.net_pnl : null))} | 收益率 ${escapeHtml(formatPct(trades.best_trade ? trades.best_trade.return_pct : null))}</div>
+                  </div>
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">最差交易</div>
+                    <div class="symbol-main">${escapeHtml(trades.worst_trade && trades.worst_trade.symbol ? trades.worst_trade.symbol : "未记录")}</div>
+                    <div class="subline">净收益 ${escapeHtml(formatMoney(trades.worst_trade ? trades.worst_trade.net_pnl : null))} | 收益率 ${escapeHtml(formatPct(trades.worst_trade ? trades.worst_trade.return_pct : null))}</div>
+                  </div>
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">平均盈利 / 亏损</div>
+                    <div class="symbol-main">${escapeHtml(formatMoney(trades.avg_win_net_pnl))} / ${escapeHtml(formatMoney(trades.avg_loss_net_pnl))}</div>
+                  </div>
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">最近交易</div>
+                    <div class="symbol-main">${escapeHtml(String((trades.recent || []).length))} 条</div>
+                    <div class="subline">按 exit_ts 倒序展示最近 10 条</div>
+                  </div>
+                </div>
+              </article>
+              <article class="report-detail-card">
+                <div class="report-detail-head">
+                  <div>
+                    <h3>产物清单</h3>
+                    <p class="page-subtitle">报告直接附带本次回测产物路径，便于继续排查或导出。</p>
+                  </div>
+                </div>
+                <div class="report-artifact-list">
+                  ${artifactRows.map((item) => `
+                    <div class="report-artifact-item">
+                      <div class="report-artifact-label">${escapeHtml(item.label || "-")}</div>
+                      <div class="report-path">${escapeHtml(shortPath(item.path))}</div>
+                      <div class="subline">${item.exists ? "已存在" : "缺失"}${item.size_bytes ? ` | ${item.size_bytes} bytes` : ""}</div>
+                    </div>
+                  `).join("")}
+                </div>
+              </article>
+            </section>
+
+            <article class="report-detail-card">
+              <div class="report-detail-head">
+                <div>
+                  <h3>最近交易明细</h3>
+                  <p class="page-subtitle">保留最近 10 条交易，方便快速抽查进出场质量。</p>
+                </div>
+              </div>
+              <div class="table-shell">
+                <div class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Symbol</th>
+                        <th>Entry / Exit</th>
+                        <th>Net PnL</th>
+                        <th>Return</th>
+                        <th>Bars</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${(trades.recent || []).length ? trades.recent.map((trade) => `
+                        <tr>
+                          <td><div class="symbol-main">${escapeHtml(trade.symbol || "-")}</div></td>
+                          <td class="subline">${escapeHtml(formatTime(trade.entry_ts))}<br />${escapeHtml(formatTime(trade.exit_ts))}</td>
+                          <td class="subline">${escapeHtml(formatMoney(trade.net_pnl))}</td>
+                          <td class="subline">${escapeHtml(formatPct(trade.return_pct))}</td>
+                          <td class="subline">${escapeHtml(String(trade.bars_held ?? "-"))}</td>
+                        </tr>
+                      `).join("") : '<tr><td class="empty" colspan="5">暂无交易明细</td></tr>'}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </article>
+          </div>
+        `;
       }
 
       function renderSettings() {
@@ -2618,6 +3245,7 @@
           ["下载任务数", String(state.settings.download_job_count)],
           ["标准化任务数", String(state.settings.normalize_job_count)],
           ["DuckDB 装载任务数", String(state.settings.duckdb_load_job_count)],
+          ["回测任务数", String(state.settings.backtest_job_count)],
           ["Charting Bundle", state.settings.charting_library_bundle_exists ? "已就绪" : "按需缓存"],
         ];
 
@@ -2699,8 +3327,10 @@
         renderDuckdbOverview();
         renderDuckdbJobs();
         renderChartControls();
+        renderBacktestJobs();
         renderStrategies();
         renderBacktests();
+        renderBacktestReport();
         renderSettings();
         renderCurrencyIcons();
       }
@@ -2740,6 +3370,35 @@
       async function loadBacktests() {
         const payload = await requestJson("/api/backtest-records");
         state.backtests = payload.records || [];
+        if (
+          state.selectedBacktestRecordId &&
+          !state.backtests.some((record) => record.record_id === state.selectedBacktestRecordId)
+        ) {
+          state.selectedBacktestRecordId = "";
+          state.backtestReport = null;
+        }
+      }
+
+      async function loadBacktestJobs() {
+        const payload = await requestJson("/api/backtest-jobs");
+        state.backtestJobsMeta = payload;
+        state.backtestJobs = payload.jobs || [];
+      }
+
+      async function loadBacktestReport(recordId, { preserveCurrent = false } = {}) {
+        if (!recordId) {
+          state.selectedBacktestRecordId = "";
+          state.backtestReport = null;
+          return;
+        }
+        state.selectedBacktestRecordId = recordId;
+        if (!preserveCurrent) {
+          state.backtestReport = null;
+          renderBacktestReport();
+        }
+        const params = new URLSearchParams();
+        params.set("record_id", recordId);
+        state.backtestReport = await requestJson(`/api/backtest-report?${params.toString()}`);
       }
 
       async function loadSettings() {
@@ -2816,6 +3475,7 @@
             loadLocalPairs(),
             loadStrategies(),
             loadBacktests(),
+            loadBacktestJobs(),
             loadSettings(),
             loadCurrencyIcons(),
             loadJobs(),
@@ -2832,6 +3492,12 @@
             state.selectedChartSymbol
           ) {
             await loadChartWidget();
+          }
+          if (state.selectedPage === "backtest-records" && !state.selectedBacktestRecordId) {
+            const firstReadyRecord = state.backtests.find((record) => record.report_available);
+            if (firstReadyRecord) {
+              await loadBacktestReport(firstReadyRecord.record_id, { preserveCurrent: true });
+            }
           }
           renderAll();
           setStatus(`加载完成 ${formatTime(new Date().toISOString())}`);
@@ -2931,6 +3597,16 @@
         await loadDuckdbLoadJobs();
         renderAll();
         setStatus(`已创建 DuckDB 装载任务 ${response.job.data_version}`);
+      }
+
+      async function createBacktestJob(payload) {
+        const response = await requestJson("/api/run-backtest", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        await Promise.all([loadBacktestJobs(), loadBacktests()]);
+        renderAll();
+        setStatus(`已创建回测任务 ${response.job.strategy_name} / ${response.job.engine}`);
       }
 
       function destroyChartWidget() {
@@ -3243,6 +3919,18 @@
         }
       }
 
+      async function handleRunBacktest(strategyPath, engine) {
+        try {
+          await createBacktestJob({
+            strategy_path: strategyPath,
+            engine,
+            skip_signal_write: false,
+          });
+        } catch (error) {
+          setStatus(error.message || "创建回测任务失败", true);
+        }
+      }
+
       async function switchPage(page) {
         if (!page) {
           return;
@@ -3256,6 +3944,18 @@
         }
         if (page === "charting-library") {
           await loadDuckdbSymbols();
+          renderAll();
+          return;
+        }
+        if (page === "backtest-records" && !state.selectedBacktestRecordId) {
+          const firstReadyRecord = state.backtests.find((record) => record.report_available);
+          if (firstReadyRecord) {
+            try {
+              await loadBacktestReport(firstReadyRecord.record_id);
+            } catch (_error) {
+              state.backtestReport = null;
+            }
+          }
           renderAll();
         }
       }
@@ -3383,6 +4083,39 @@
         }
       });
 
+      els.strategyRows.addEventListener("click", async (event) => {
+        const button = event.target.closest("button[data-action='run-backtest']");
+        if (!button) {
+          return;
+        }
+        const strategyPath = button.getAttribute("data-strategy-path");
+        const engine = button.getAttribute("data-engine");
+        if (!strategyPath || !engine) {
+          return;
+        }
+        await handleRunBacktest(strategyPath, engine);
+      });
+
+      els.backtestRows.addEventListener("click", async (event) => {
+        const button = event.target.closest("button[data-action='view-backtest-report']");
+        if (!button || button.disabled) {
+          return;
+        }
+        const recordId = button.getAttribute("data-record-id");
+        if (!recordId) {
+          return;
+        }
+        setStatus(`正在加载回测报告 ${recordId}...`);
+        try {
+          await loadBacktestReport(recordId);
+          renderAll();
+          setStatus(`已加载回测报告 ${recordId}`);
+        } catch (error) {
+          renderAll();
+          setStatus(error.message || "加载回测报告失败", true);
+        }
+      });
+
       els.duckdbRows.addEventListener("click", async (event) => {
         const button = event.target.closest("button[data-action='open-chart']");
         if (!button) {
@@ -3456,10 +4189,19 @@
           loadDuckdbLoadJobs(),
           loadNormalizedDatasets(),
           loadDuckdbStatus(),
+          loadBacktestJobs(),
+          loadBacktests(),
         ])
           .then(async () => {
             if (state.selectedPage === "charting-library") {
               await loadDuckdbSymbols();
+            }
+            if (state.selectedBacktestRecordId) {
+              try {
+                await loadBacktestReport(state.selectedBacktestRecordId, { preserveCurrent: true });
+              } catch (_error) {
+                state.backtestReport = null;
+              }
             }
             renderAll();
           })

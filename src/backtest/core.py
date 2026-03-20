@@ -11,7 +11,7 @@ from src.strategies.core import MarketBar, SignalRecord, StrategyMetadata
 DEFAULT_INITIAL_CAPITAL = 100000.0
 DEFAULT_ORDER_TYPE = "next_bar_open"
 DEFAULT_ENGINE = "native"
-SUPPORTED_BACKTEST_ENGINES = ("native", "bt")
+SUPPORTED_BACKTEST_ENGINES = ("native", "bt", "backtrader")
 
 
 @dataclass(frozen=True)

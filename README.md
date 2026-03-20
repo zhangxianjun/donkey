@@ -165,11 +165,21 @@ python3 -m src.backtest.run \
 如果你想切到成熟组合回测库 `bt`：
 
 ```bash
-python3 -m pip install bt pandas
+python3 -m pip install -r requirements-bt.txt
 python3 -m src.backtest.run \
   --strategy config/strategies/atr_trailing_v1.yaml \
   --input data/normalized/v1/market_ohlcv_1d.parquet \
   --engine bt
+```
+
+如果你想切到第二个外部引擎 `backtrader` 做对比：
+
+```bash
+python3 -m pip install -r requirements-backtrader.txt
+python3 -m src.backtest.run \
+  --strategy config/strategies/atr_trailing_v1.yaml \
+  --input data/normalized/v1/market_ohlcv_1d.parquet \
+  --engine backtrader
 ```
 
 更详细的操作流程见：

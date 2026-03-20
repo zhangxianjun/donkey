@@ -10,6 +10,8 @@ from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 from src.admin.pairs_dashboard import (
+    BacktestJob,
+    BacktestRunRequest,
     DashboardConfig,
     DuckDBLoadJob,
     DownloadJob,
@@ -254,7 +256,7 @@ class PairsDashboardTests(unittest.TestCase):
             server = PairAdminHTTPServer(("127.0.0.1", 0), config=config)
             thread = threading.Thread(
                 target=self.serve_requests,
-                args=(server, 30),
+                args=(server, 40),
                 daemon=True,
             )
             thread.start()
@@ -302,6 +304,22 @@ class PairsDashboardTests(unittest.TestCase):
                 db_path=str(config.quant_db_path),
             )
 
+            backtest_job = BacktestJob(
+                job_id="btjob_123456",
+                run_id="20260320_000000_abcd12",
+                strategy_id="demo_v1",
+                strategy_name="demo",
+                strategy_version="v1",
+                engine="backtrader",
+                interval="1d",
+                data_version="v1",
+                input_path=str(normalized_version_dir / "market_ohlcv_1h.jsonl"),
+                skip_signal_write=False,
+                status="queued",
+                created_at="2026-03-20T00:00:00Z",
+                strategy_path=str(strategy_dir / "demo_v1.yaml"),
+            )
+
             try:
                 host, port = server.server_address
                 base_url = f"http://{host}:{port}"
@@ -333,6 +351,14 @@ class PairsDashboardTests(unittest.TestCase):
                     server.duckdb_load_jobs,
                     "list_jobs",
                     return_value=[duckdb_job],
+                ), patch.object(
+                    server.backtest_jobs,
+                    "create_job",
+                    return_value=backtest_job,
+                ) as mocked_backtest_create, patch.object(
+                    server.backtest_jobs,
+                    "list_jobs",
+                    return_value=[backtest_job],
                 ), patch(
                     "src.admin.pairs_dashboard.query_duckdb_overview",
                     return_value={
@@ -433,6 +459,9 @@ class PairsDashboardTests(unittest.TestCase):
                     with urlopen(f"{base_url}/api/backtest-records") as response:
                         backtest_payload = json.loads(response.read().decode("utf-8"))
 
+                    with urlopen(f"{base_url}/api/backtest-report?record_id=strategy:demo_v1") as response:
+                        backtest_report_payload = json.loads(response.read().decode("utf-8"))
+
                     with urlopen(f"{base_url}/api/system-settings") as response:
                         settings_payload = json.loads(response.read().decode("utf-8"))
 
@@ -504,6 +533,24 @@ class PairsDashboardTests(unittest.TestCase):
                     with urlopen(f"{base_url}/api/duckdb-load-jobs") as response:
                         duckdb_jobs_payload = json.loads(response.read().decode("utf-8"))
 
+                    backtest_request = Request(
+                        f"{base_url}/api/run-backtest",
+                        data=json.dumps(
+                            {
+                                "strategy_path": str(strategy_dir / "demo_v1.yaml"),
+                                "engine": "backtrader",
+                                "skip_signal_write": False,
+                            }
+                        ).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urlopen(backtest_request) as response:
+                        backtest_run_payload = json.loads(response.read().decode("utf-8"))
+
+                    with urlopen(f"{base_url}/api/backtest-jobs") as response:
+                        backtest_jobs_payload = json.loads(response.read().decode("utf-8"))
+
                     with urlopen(
                         f"{base_url}/api/chart-bars?symbol=BTCUSDT&interval=1h&data_version=v1"
                     ) as response:
@@ -573,6 +620,10 @@ class PairsDashboardTests(unittest.TestCase):
         self.assertEqual(backtest_payload["count"], 1)
         self.assertEqual(backtest_payload["records"][0]["status"], "ready")
         self.assertEqual(backtest_payload["records"][0]["metrics"]["sharpe"], 1.2)
+        self.assertEqual(backtest_payload["records"][0]["record_id"], "strategy:demo_v1")
+        self.assertTrue(backtest_payload["records"][0]["report_available"])
+        self.assertEqual(backtest_report_payload["record"]["record_id"], "strategy:demo_v1")
+        self.assertEqual(backtest_report_payload["summary"]["total_return"], 0.34)
 
         self.assertEqual(settings_payload["default_quote_asset"], "USDT")
         self.assertEqual(settings_payload["log_count"], 1)
@@ -581,6 +632,7 @@ class PairsDashboardTests(unittest.TestCase):
         self.assertEqual(settings_payload["currency_icon_missing_count"], 1)
         self.assertEqual(settings_payload["normalize_job_count"], 1)
         self.assertEqual(settings_payload["duckdb_load_job_count"], 1)
+        self.assertEqual(settings_payload["backtest_job_count"], 1)
 
         self.assertEqual(icon_payload["available_count"], 1)
         self.assertEqual(icon_payload["missing_count"], 1)
@@ -609,6 +661,9 @@ class PairsDashboardTests(unittest.TestCase):
         self.assertEqual(duckdb_symbols_payload["symbols"][0]["symbol"], "BTCUSDT")
         self.assertEqual(duckdb_load_payload["job"]["job_id"], "duck_123456")
         self.assertEqual(duckdb_jobs_payload["count"], 1)
+        self.assertEqual(backtest_run_payload["job"]["job_id"], "btjob_123456")
+        self.assertEqual(backtest_jobs_payload["count"], 1)
+        self.assertEqual(backtest_jobs_payload["jobs"][0]["engine"], "backtrader")
         self.assertEqual(chart_bars_payload["count"], 1)
         self.assertEqual(chart_bars_payload["bars"][0]["close"], 105.0)
         self.assertIn("首页", html)
@@ -630,6 +685,13 @@ class PairsDashboardTests(unittest.TestCase):
         self.assertIn("ETH", eth_icon)
         mocked_normalize_create.assert_called_once()
         mocked_duckdb_create.assert_called_once()
+        mocked_backtest_create.assert_called_once_with(
+            BacktestRunRequest(
+                strategy_path=str(strategy_dir / "demo_v1.yaml"),
+                engine="backtrader",
+                skip_signal_write=False,
+            )
+        )
 
 
 if __name__ == "__main__":

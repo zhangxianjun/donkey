@@ -21,6 +21,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
+from src.backtest.core import SUPPORTED_BACKTEST_ENGINES
+from src.backtest.reporting import build_backtest_report
+from src.backtest.run import execute_backtest
 from src.ingestion.binance_ohlcv import (
     DEFAULT_EXCHANGE_INFO_BASE_URL,
     DEFAULT_INTERVALS,
@@ -118,16 +121,21 @@ class LocalPair:
 
 @dataclass(frozen=True)
 class StrategyEntry:
+    strategy_id: str
     strategy_name: str
     strategy_version: str
     description: str
     exchange: str | None
     market_type: str | None
     interval: str | None
+    data_version: str | None
+    configured_engine: str | None
     symbols: list[str]
     symbol_count: int
     backtest_start: str | None
     backtest_end: str | None
+    input_path: str | None
+    input_exists: bool
     strategy_path: str
     signal_path: str | None
     trades_path: str | None
@@ -139,17 +147,28 @@ class StrategyEntry:
 
 @dataclass(frozen=True)
 class BacktestRecord:
+    record_id: str
+    run_id: str | None
+    strategy_id: str
     strategy_name: str
     strategy_version: str
+    engine: str | None
     status: str
+    input_path: str | None
+    manifest_path: str | None
+    report_available: bool
     summary_path: str | None
     summary_exists: bool
     trades_path: str | None
     trades_exists: bool
     equity_path: str | None
     equity_exists: bool
+    created_at: str | None
+    started_at: str | None
+    finished_at: str | None
     updated_at: str | None
     metrics: dict[str, Any] | None
+    error: str | None
 
 
 @dataclass(frozen=True)
@@ -252,6 +271,39 @@ class DuckDBLoadJob:
     db_path: str | None = None
     loaded_files: list[dict[str, Any]] = field(default_factory=list)
     market_ohlcv_rows_for_data_version: int | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class BacktestRunRequest:
+    strategy_path: str
+    engine: str | None
+    skip_signal_write: bool
+
+
+@dataclass
+class BacktestJob:
+    job_id: str
+    run_id: str
+    strategy_id: str
+    strategy_name: str
+    strategy_version: str
+    engine: str
+    interval: str | None
+    data_version: str | None
+    input_path: str
+    skip_signal_write: bool
+    status: str
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    strategy_path: str | None = None
+    manifest_path: str | None = None
+    signal_paths: list[str] = field(default_factory=list)
+    trades_path: str | None = None
+    equity_path: str | None = None
+    summary_path: str | None = None
+    metrics: dict[str, Any] | None = None
     error: str | None = None
 
 
@@ -1818,6 +1870,26 @@ def resolve_workspace_path(config: DashboardConfig, raw_path: str | None) -> Pat
     return (config.workspace_root / candidate).resolve()
 
 
+def strategy_identifier(strategy_name: str, strategy_version: str) -> str:
+    return f"{strategy_name.strip()}_{strategy_version.strip()}"
+
+
+def resolve_normalized_input_path(
+    config: DashboardConfig,
+    *,
+    data_version: str | None,
+    interval: str | None,
+) -> Path | None:
+    if data_version is None or interval is None:
+        return None
+    base_path = config.normalized_root / data_version / f"market_ohlcv_{interval}"
+    for suffix in (".jsonl", ".parquet"):
+        candidate = base_path.with_suffix(suffix)
+        if candidate.exists():
+            return candidate.resolve()
+    return base_path.with_suffix(".jsonl").resolve()
+
+
 def discover_strategy_entries(config: DashboardConfig) -> list[StrategyEntry]:
     if not config.strategies_root.exists():
         return []
@@ -1830,9 +1902,17 @@ def discover_strategy_entries(config: DashboardConfig) -> list[StrategyEntry]:
             parsed = {}
 
         universe = parsed.get("universe", {}) if isinstance(parsed.get("universe"), dict) else {}
+        data_config = parsed.get("data", {}) if isinstance(parsed.get("data"), dict) else {}
         backtest = parsed.get("backtest", {}) if isinstance(parsed.get("backtest"), dict) else {}
         artifacts = parsed.get("artifacts", {}) if isinstance(parsed.get("artifacts"), dict) else {}
         symbols = universe.get("symbols", []) if isinstance(universe.get("symbols"), list) else []
+        data_version = str(data_config.get("data_version")) if data_config.get("data_version") is not None else None
+        interval = str(universe.get("interval")) if universe.get("interval") is not None else None
+        input_path = resolve_normalized_input_path(
+            config,
+            data_version=data_version,
+            interval=interval,
+        )
         summary_path = resolve_workspace_path(config, str(artifacts.get("summary_path", "")) or None)
         updated_at = None
         if summary_path is not None and summary_path.exists():
@@ -1842,6 +1922,10 @@ def discover_strategy_entries(config: DashboardConfig) -> list[StrategyEntry]:
 
         entries.append(
             StrategyEntry(
+                strategy_id=strategy_identifier(
+                    str(parsed.get("strategy_name", path.stem)),
+                    str(parsed.get("strategy_version", "unknown")),
+                ),
                 strategy_name=str(parsed.get("strategy_name", path.stem)),
                 strategy_version=str(parsed.get("strategy_version", "unknown")),
                 description=str(parsed.get("description", "")),
@@ -1851,7 +1935,11 @@ def discover_strategy_entries(config: DashboardConfig) -> list[StrategyEntry]:
                     if universe.get("market_type") is not None
                     else None
                 ),
-                interval=str(universe.get("interval")) if universe.get("interval") is not None else None,
+                interval=interval,
+                data_version=data_version,
+                configured_engine=(
+                    str(backtest.get("engine")) if backtest.get("engine") is not None else None
+                ),
                 symbols=[str(item) for item in symbols],
                 symbol_count=len(symbols),
                 backtest_start=(
@@ -1860,6 +1948,8 @@ def discover_strategy_entries(config: DashboardConfig) -> list[StrategyEntry]:
                 backtest_end=(
                     str(backtest.get("end_date")) if backtest.get("end_date") is not None else None
                 ),
+                input_path=str(input_path) if input_path is not None else None,
+                input_exists=bool(input_path and input_path.exists()),
                 strategy_path=str(path),
                 signal_path=str(resolve_workspace_path(config, str(artifacts.get("signal_path", "")) or None))
                 if artifacts.get("signal_path") is not None
@@ -1878,13 +1968,19 @@ def discover_strategy_entries(config: DashboardConfig) -> list[StrategyEntry]:
     return entries
 
 
-def load_summary_metrics(summary_path: Path | None) -> dict[str, Any] | None:
-    if summary_path is None or not summary_path.exists():
-        return None
-    try:
-        payload = json.loads(summary_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+def load_summary_metrics(
+    summary_path: Path | None,
+    *,
+    summary_payload: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    payload = summary_payload
+    if payload is None:
+        if summary_path is None or not summary_path.exists():
+            return None
+        try:
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
     if not isinstance(payload, dict):
         return None
     metrics: dict[str, Any] = {}
@@ -1894,41 +1990,187 @@ def load_summary_metrics(summary_path: Path | None) -> dict[str, Any] | None:
     return metrics or payload
 
 
-def discover_backtest_records(config: DashboardConfig) -> list[BacktestRecord]:
-    entries = discover_strategy_entries(config)
-    records: list[BacktestRecord] = []
-    for entry in entries:
-        summary_path = Path(entry.summary_path) if entry.summary_path else None
-        trades_path = Path(entry.trades_path) if entry.trades_path else None
-        equity_path = Path(entry.equity_path) if entry.equity_path else None
+def build_fallback_backtest_record(entry: StrategyEntry) -> BacktestRecord:
+    summary_path = Path(entry.summary_path) if entry.summary_path else None
+    trades_path = Path(entry.trades_path) if entry.trades_path else None
+    equity_path = Path(entry.equity_path) if entry.equity_path else None
+    summary_exists = bool(summary_path and summary_path.exists())
+    trades_exists = bool(trades_path and trades_path.exists())
+    equity_exists = bool(equity_path and equity_path.exists())
+    updated_candidates = [
+        path.stat().st_mtime
+        for path in (summary_path, trades_path, equity_path)
+        if path is not None and path.exists()
+    ]
+    updated_at = isoformat_utc_from_timestamp(max(updated_candidates)) if updated_candidates else None
+    status = "ready" if summary_exists else "pending"
+    return BacktestRecord(
+        record_id=f"strategy:{entry.strategy_id}",
+        run_id=None,
+        strategy_id=entry.strategy_id,
+        strategy_name=entry.strategy_name,
+        strategy_version=entry.strategy_version,
+        engine=entry.configured_engine,
+        status=status,
+        input_path=entry.input_path,
+        manifest_path=None,
+        report_available=bool(summary_exists and equity_exists),
+        summary_path=entry.summary_path,
+        summary_exists=summary_exists,
+        trades_path=entry.trades_path,
+        trades_exists=trades_exists,
+        equity_path=entry.equity_path,
+        equity_exists=equity_exists,
+        created_at=None,
+        started_at=None,
+        finished_at=None,
+        updated_at=updated_at,
+        metrics=load_summary_metrics(summary_path),
+        error=None,
+    )
+
+
+def load_backtest_manifest(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def discover_manifest_backtest_records(config: DashboardConfig) -> dict[str, list[BacktestRecord]]:
+    if not config.backtests_root.exists():
+        return {}
+
+    records_by_strategy: dict[str, list[BacktestRecord]] = {}
+    for manifest_path in sorted(config.backtests_root.glob("*/runs/*/manifest.json")):
+        manifest = load_backtest_manifest(manifest_path)
+        if manifest is None:
+            continue
+
+        strategy_id = str(manifest.get("strategy_id", "")).strip()
+        strategy_name = str(manifest.get("strategy_name", "")).strip()
+        strategy_version = str(manifest.get("strategy_version", "")).strip()
+        if not strategy_id and strategy_name and strategy_version:
+            strategy_id = strategy_identifier(strategy_name, strategy_version)
+        if not strategy_id:
+            continue
+
+        summary_path = resolve_workspace_path(config, str(manifest.get("summary_path", "")) or None)
+        trades_path = resolve_workspace_path(config, str(manifest.get("trades_path", "")) or None)
+        equity_path = resolve_workspace_path(config, str(manifest.get("equity_path", "")) or None)
         summary_exists = bool(summary_path and summary_path.exists())
         trades_exists = bool(trades_path and trades_path.exists())
         equity_exists = bool(equity_path and equity_path.exists())
         updated_candidates = [
-            path.stat().st_mtime
-            for path in (summary_path, trades_path, equity_path)
-            if path is not None and path.exists()
+            candidate.stat().st_mtime
+            for candidate in (manifest_path, summary_path, trades_path, equity_path)
+            if candidate is not None and candidate.exists()
         ]
-        updated_at = (
-            isoformat_utc_from_timestamp(max(updated_candidates)) if updated_candidates else None
+        updated_at = isoformat_utc_from_timestamp(max(updated_candidates)) if updated_candidates else None
+        metrics = load_summary_metrics(
+            summary_path,
+            summary_payload=manifest.get("summary") if isinstance(manifest.get("summary"), dict) else None,
         )
-        status = "ready" if summary_exists else "pending"
-        records.append(
-            BacktestRecord(
-                strategy_name=entry.strategy_name,
-                strategy_version=entry.strategy_version,
-                status=status,
-                summary_path=entry.summary_path,
-                summary_exists=summary_exists,
-                trades_path=entry.trades_path,
-                trades_exists=trades_exists,
-                equity_path=entry.equity_path,
-                equity_exists=equity_exists,
-                updated_at=updated_at,
-                metrics=load_summary_metrics(summary_path),
-            )
+        record = BacktestRecord(
+            record_id=f"run:{manifest.get('run_id', manifest_path.parent.name)}",
+            run_id=str(manifest.get("run_id")) if manifest.get("run_id") is not None else manifest_path.parent.name,
+            strategy_id=strategy_id,
+            strategy_name=strategy_name or strategy_id,
+            strategy_version=strategy_version or "unknown",
+            engine=str(manifest.get("engine")) if manifest.get("engine") is not None else None,
+            status=str(manifest.get("status", "unknown")),
+            input_path=str(manifest.get("input_path")) if manifest.get("input_path") is not None else None,
+            manifest_path=str(manifest_path.resolve()),
+            report_available=bool(summary_exists and equity_exists),
+            summary_path=str(summary_path) if summary_path is not None else None,
+            summary_exists=summary_exists,
+            trades_path=str(trades_path) if trades_path is not None else None,
+            trades_exists=trades_exists,
+            equity_path=str(equity_path) if equity_path is not None else None,
+            equity_exists=equity_exists,
+            created_at=str(manifest.get("created_at")) if manifest.get("created_at") is not None else None,
+            started_at=str(manifest.get("started_at")) if manifest.get("started_at") is not None else None,
+            finished_at=str(manifest.get("finished_at")) if manifest.get("finished_at") is not None else None,
+            updated_at=updated_at,
+            metrics=metrics,
+            error=str(manifest.get("error")) if manifest.get("error") is not None else None,
         )
-    return records
+        records_by_strategy.setdefault(strategy_id, []).append(record)
+
+    for strategy_id, records in records_by_strategy.items():
+        records_by_strategy[strategy_id] = sorted(
+            records,
+            key=lambda item: (item.updated_at or "", item.record_id),
+            reverse=True,
+        )
+    return records_by_strategy
+
+
+def discover_backtest_records(config: DashboardConfig) -> list[BacktestRecord]:
+    entries = discover_strategy_entries(config)
+    manifest_records = discover_manifest_backtest_records(config)
+    records: list[BacktestRecord] = []
+    for entry in entries:
+        if entry.strategy_id in manifest_records:
+            records.extend(manifest_records[entry.strategy_id])
+            continue
+        records.append(build_fallback_backtest_record(entry))
+
+    return sorted(
+        records,
+        key=lambda item: (item.updated_at or "", item.record_id),
+        reverse=True,
+    )
+
+
+def find_strategy_entry_by_path(config: DashboardConfig, strategy_path: str) -> StrategyEntry | None:
+    normalized = Path(strategy_path).expanduser()
+    if not normalized.is_absolute():
+        normalized = (config.workspace_root / normalized).resolve()
+    else:
+        normalized = normalized.resolve()
+
+    for entry in discover_strategy_entries(config):
+        if Path(entry.strategy_path).resolve() == normalized:
+            return entry
+    return None
+
+
+def find_backtest_record_by_id(config: DashboardConfig, record_id: str) -> BacktestRecord | None:
+    for record in discover_backtest_records(config):
+        if record.record_id == record_id:
+            return record
+    return None
+
+
+def build_backtest_report_payload(config: DashboardConfig, record_id: str) -> dict[str, Any]:
+    record = find_backtest_record_by_id(config, record_id)
+    if record is None:
+        raise ValueError(f"Backtest record not found: {record_id}")
+    return build_backtest_report(asdict(record))
+
+
+def parse_backtest_run_payload(payload: Any) -> BacktestRunRequest:
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object.")
+
+    strategy_path = str(payload.get("strategy_path", "")).strip()
+    if not strategy_path:
+        raise ValueError("strategy_path is required.")
+
+    raw_engine = payload.get("engine")
+    engine = str(raw_engine).strip().lower() if raw_engine is not None and str(raw_engine).strip() else None
+    if engine is not None and engine not in SUPPORTED_BACKTEST_ENGINES:
+        raise ValueError(
+            f"Unsupported engine {engine!r}. Expected one of {', '.join(SUPPORTED_BACKTEST_ENGINES)}."
+        )
+
+    return BacktestRunRequest(
+        strategy_path=strategy_path,
+        engine=engine,
+        skip_signal_write=parse_bool_value(payload.get("skip_signal_write"), default=False),
+    )
 
 
 def infer_base_asset(symbol: str, quote_asset: str) -> str:
@@ -2556,6 +2798,195 @@ class DuckDBLoadJobRegistry:
             job.status = "succeeded" if error_message is None else "failed"
 
 
+class BacktestJobConflictError(RuntimeError):
+    """Raised when a conflicting backtest job already exists."""
+
+
+class BacktestJobRegistry:
+    def __init__(self, config: DashboardConfig) -> None:
+        self._config = config
+        self._jobs: dict[str, BacktestJob] = {}
+        self._lock = threading.Lock()
+
+    def create_job(self, request: BacktestRunRequest) -> BacktestJob:
+        strategy_entry = find_strategy_entry_by_path(self._config, request.strategy_path)
+        if strategy_entry is None:
+            raise ValueError(f"Strategy not found: {request.strategy_path}")
+        if not strategy_entry.input_path or not strategy_entry.input_exists:
+            raise ValueError(
+                f"Normalized input not found for {strategy_entry.strategy_id}. "
+                "Please prepare normalized data first."
+            )
+
+        resolved_engine = request.engine or strategy_entry.configured_engine or "native"
+        if resolved_engine not in SUPPORTED_BACKTEST_ENGINES:
+            raise ValueError(
+                f"Unsupported engine {resolved_engine!r}. Expected one of "
+                f"{', '.join(SUPPORTED_BACKTEST_ENGINES)}."
+            )
+
+        with self._lock:
+            for existing in self._jobs.values():
+                if (
+                    existing.strategy_id == strategy_entry.strategy_id
+                    and existing.engine == resolved_engine
+                    and existing.status in {"queued", "running"}
+                ):
+                    raise BacktestJobConflictError(
+                        f"{strategy_entry.strategy_id} already has an active {resolved_engine} backtest job."
+                    )
+
+            created_at = utc_now_iso()
+            run_id = (
+                created_at.replace("-", "")
+                .replace(":", "")
+                .replace("T", "_")
+                .replace("Z", "")
+                + f"_{uuid.uuid4().hex[:6]}"
+            )
+            job = BacktestJob(
+                job_id=uuid.uuid4().hex[:12],
+                run_id=run_id,
+                strategy_id=strategy_entry.strategy_id,
+                strategy_name=strategy_entry.strategy_name,
+                strategy_version=strategy_entry.strategy_version,
+                engine=resolved_engine,
+                interval=strategy_entry.interval,
+                data_version=strategy_entry.data_version,
+                input_path=str(strategy_entry.input_path),
+                skip_signal_write=request.skip_signal_write,
+                status="queued",
+                created_at=created_at,
+                strategy_path=strategy_entry.strategy_path,
+            )
+            self._jobs[job.job_id] = job
+
+        thread = threading.Thread(target=self._run_job, args=(job.job_id,), daemon=True)
+        thread.start()
+        return self._clone_job(job)
+
+    def list_jobs(self) -> list[BacktestJob]:
+        with self._lock:
+            jobs = sorted(
+                self._jobs.values(),
+                key=lambda item: (item.created_at, item.job_id),
+                reverse=True,
+            )
+            return [self._clone_job(job) for job in jobs]
+
+    @staticmethod
+    def _clone_job(job: BacktestJob) -> BacktestJob:
+        return BacktestJob(**asdict(job))
+
+    def _path_for_manifest(self, path: Path | None) -> str | None:
+        if path is None:
+            return None
+        try:
+            return str(path.resolve().relative_to(self._config.workspace_root))
+        except ValueError:
+            return str(path.resolve())
+
+    def _write_manifest(
+        self,
+        *,
+        job: BacktestJob,
+        manifest_path: Path,
+        execution: Any | None,
+        error_message: str | None,
+    ) -> None:
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        summary = execution.result.summary if execution is not None else None
+        payload = {
+            "job_id": job.job_id,
+            "run_id": job.run_id,
+            "strategy_id": job.strategy_id,
+            "strategy_name": job.strategy_name,
+            "strategy_version": job.strategy_version,
+            "engine": job.engine,
+            "status": "succeeded" if error_message is None and execution is not None else "failed",
+            "created_at": job.created_at,
+            "started_at": job.started_at,
+            "finished_at": job.finished_at,
+            "strategy_path": self._path_for_manifest(Path(job.strategy_path)) if job.strategy_path else None,
+            "input_path": self._path_for_manifest(Path(job.input_path)),
+            "skip_signal_write": job.skip_signal_write,
+            "interval": job.interval,
+            "data_version": job.data_version,
+            "signal_paths": [self._path_for_manifest(path) for path in execution.artifact_paths.signal_paths]
+            if execution is not None
+            else [],
+            "trades_path": self._path_for_manifest(execution.artifact_paths.trades_path)
+            if execution is not None
+            else None,
+            "equity_path": self._path_for_manifest(execution.artifact_paths.equity_path)
+            if execution is not None
+            else None,
+            "summary_path": self._path_for_manifest(execution.artifact_paths.summary_path)
+            if execution is not None
+            else None,
+            "summary": summary,
+            "error": error_message,
+        }
+        manifest_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+
+    def _run_job(self, job_id: str) -> None:
+        with self._lock:
+            job = self._jobs[job_id]
+            job.status = "running"
+            job.started_at = utc_now_iso()
+
+        execution = None
+        manifest_path = self._config.backtests_root / job.strategy_id / "runs" / job.run_id / "manifest.json"
+        error_message: str | None = None
+        metrics: dict[str, Any] | None = None
+        signal_paths: list[str] = []
+        trades_path: str | None = None
+        equity_path: str | None = None
+        summary_path: str | None = None
+
+        try:
+            run_root = self._config.backtests_root / job.strategy_id / "runs" / job.run_id
+            signal_root = self._config.workspace_root / "data" / "signals" / job.strategy_id / "runs" / job.run_id
+            execution = execute_backtest(
+                strategy_path=job.strategy_path or "",
+                input_path=job.input_path,
+                engine=job.engine,
+                skip_signal_write=job.skip_signal_write,
+                repo_root=self._config.workspace_root,
+                signal_path_override=str(signal_root / "{symbol}_signal.jsonl"),
+                trades_path_override=str(run_root / "trades.jsonl"),
+                equity_path_override=str(run_root / "portfolio_equity.jsonl"),
+                summary_path_override=str(run_root / "summary.json"),
+            )
+            metrics = load_summary_metrics(
+                execution.artifact_paths.summary_path,
+                summary_payload=execution.result.summary,
+            )
+            signal_paths = [str(path) for path in execution.artifact_paths.signal_paths]
+            trades_path = str(execution.artifact_paths.trades_path)
+            equity_path = str(execution.artifact_paths.equity_path)
+            summary_path = str(execution.artifact_paths.summary_path)
+        except Exception as exc:
+            error_message = str(exc)
+
+        with self._lock:
+            job = self._jobs[job_id]
+            job.finished_at = utc_now_iso()
+            self._write_manifest(
+                job=job,
+                manifest_path=manifest_path,
+                execution=execution,
+                error_message=error_message,
+            )
+            job.manifest_path = str(manifest_path)
+            job.signal_paths = signal_paths
+            job.trades_path = trades_path
+            job.equity_path = equity_path
+            job.summary_path = summary_path
+            job.metrics = metrics
+            job.error = error_message
+            job.status = "succeeded" if error_message is None else "failed"
+
 class PairAdminHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -2567,6 +2998,7 @@ class PairAdminHTTPServer(ThreadingHTTPServer):
         self.download_jobs = DownloadJobRegistry(config=config)
         self.normalize_jobs = NormalizeJobRegistry(config=config)
         self.duckdb_load_jobs = DuckDBLoadJobRegistry(config=config)
+        self.backtest_jobs = BacktestJobRegistry(config=config)
 
 
 class PairAdminHandler(BaseHTTPRequestHandler):
@@ -2601,6 +3033,9 @@ class PairAdminHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/backtest-records":
             self.handle_backtest_records()
             return
+        if parsed.path == "/api/backtest-report":
+            self.handle_backtest_report(parsed.query)
+            return
         if parsed.path == "/api/system-settings":
             self.handle_system_settings()
             return
@@ -2625,6 +3060,9 @@ class PairAdminHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/duckdb-load-jobs":
             self.handle_duckdb_load_jobs()
             return
+        if parsed.path == "/api/backtest-jobs":
+            self.handle_backtest_jobs()
+            return
         if parsed.path == "/api/chart-bars":
             self.handle_chart_bars(parsed.query)
             return
@@ -2646,6 +3084,9 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/load-duckdb":
             self.handle_load_duckdb()
+            return
+        if parsed.path == "/api/run-backtest":
+            self.handle_run_backtest()
             return
         self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
 
@@ -2775,6 +3216,19 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             }
         )
 
+    def handle_backtest_report(self, query: str) -> None:
+        params = parse_qs(query)
+        record_id = params.get("record_id", [""])[0].strip()
+        if not record_id:
+            self.respond_json({"error": "record_id is required."}, status=HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            payload = build_backtest_report_payload(self.server.config, record_id)
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+            return
+        self.respond_json(payload)
+
     def handle_system_settings(self) -> None:
         latest_log_path = None
         log_count = 0
@@ -2816,6 +3270,7 @@ class PairAdminHandler(BaseHTTPRequestHandler):
                 "download_job_count": len(self.server.download_jobs.list_jobs()),
                 "normalize_job_count": len(self.server.normalize_jobs.list_jobs()),
                 "duckdb_load_job_count": len(self.server.duckdb_load_jobs.list_jobs()),
+                "backtest_job_count": len(self.server.backtest_jobs.list_jobs()),
                 "charting_library_root": str(CHARTING_LIBRARY_STATIC_ROOT),
                 "charting_library_bundle_path": str(CHARTING_LIBRARY_BUNDLE_PATH),
                 "charting_library_bundle_exists": charting_library_asset_exists(CHARTING_LIBRARY_BUNDLE_PATH),
@@ -2894,6 +3349,16 @@ class PairAdminHandler(BaseHTTPRequestHandler):
 
     def handle_duckdb_load_jobs(self) -> None:
         jobs = self.server.duckdb_load_jobs.list_jobs()
+        self.respond_json(
+            {
+                "count": len(jobs),
+                "jobs": [asdict(job) for job in jobs],
+                "fetched_at": utc_now_iso(),
+            }
+        )
+
+    def handle_backtest_jobs(self) -> None:
+        jobs = self.server.backtest_jobs.list_jobs()
         self.respond_json(
             {
                 "count": len(jobs),
@@ -2997,6 +3462,25 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             )
             return
         self.respond_json({"message": "DuckDB load job created.", "job": asdict(job)}, status=HTTPStatus.ACCEPTED)
+
+    def handle_run_backtest(self) -> None:
+        try:
+            payload = self.read_json_body()
+            request = parse_backtest_run_payload(payload)
+            job = self.server.backtest_jobs.create_job(request)
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        except BacktestJobConflictError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+            return
+        except Exception as exc:
+            self.respond_json(
+                {"error": f"Failed to create backtest job: {exc}"},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+        self.respond_json({"message": "Backtest job created.", "job": asdict(job)}, status=HTTPStatus.ACCEPTED)
 
     def handle_charting_library_file(self, raw_path: str) -> None:
         relative_path = raw_path.removeprefix("/charting_library/").strip("/")

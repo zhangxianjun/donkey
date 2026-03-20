@@ -35,7 +35,7 @@ def import_bt_modules() -> tuple[Any, Any]:
     except ImportError as exc:
         raise RuntimeError(
             "Engine `bt` requires optional dependencies `bt` and `pandas`. "
-            "Install them with `python3 -m pip install bt pandas`."
+            "Install them with `python3 -m pip install -r requirements-bt.txt`."
         ) from exc
     return bt, pandas
 

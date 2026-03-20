@@ -1,3 +1,4 @@
+from .backtrader_adapter import run_backtrader_backtest
 from .bt_adapter import run_bt_backtest
 from .core import (
     BacktestResult,
@@ -23,5 +24,6 @@ __all__ = [
     "build_target_weight_plan",
     "load_backtest_settings",
     "run_bt_backtest",
+    "run_backtrader_backtest",
     "run_native_backtest",
 ]
