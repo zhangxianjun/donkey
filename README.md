@@ -1445,6 +1445,10 @@ K 线请求默认会在主 endpoint 失败后自动切换到备用 Binance endpo
 
 支持 checkpoint / 自动续跑，进程中断后再次执行同样请求会从上次进度继续
 
+默认开启单任务容错：某个 `symbol/interval` 失败时不会拖死整批任务，失败项会写进 manifest 的 `failed_downloads`
+
+如果批次里出现失败，进程最后仍会返回非 0，便于 cron / 调度器识别“部分失败”
+
 输出到 raw 层目录：
 
 data/raw/binance/spot/<symbol>/<interval>/<run_id>.jsonl
@@ -1533,6 +1537,10 @@ end-date 如果写日期，例如 2026-03-18，表示“抓到这一天结束”
 如果任务中断，再次执行相同请求时，默认会自动读取 `_checkpoint.json` 续跑；如果你想忽略断点重来，可以加：
 
 --no-resume-incomplete
+
+如果你想恢复“遇到第一个失败就立刻停止”的 fail-fast 模式，可以加：
+
+--no-continue-on-error
 
 十五、第一版 Normalize
 

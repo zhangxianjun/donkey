@@ -80,6 +80,17 @@ class DownloadSummary:
     resumed_from_checkpoint: bool
 
 
+@dataclass
+class FailedDownload:
+    symbol: str
+    interval: str
+    error_type: str
+    error_message: str
+    checkpoint_path: str
+    checkpoint_exists: bool
+    failed_at: str
+
+
 @dataclass(frozen=True)
 class ExchangeSymbol:
     symbol: str
@@ -235,6 +246,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Resume unfinished symbol/interval downloads from checkpoint files when available.",
+    )
+    parser.add_argument(
+        "--continue-on-error",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Continue the batch when an individual symbol/interval download fails. "
+            "The process still exits non-zero if any failures occurred."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -637,6 +657,19 @@ def remove_checkpoint(checkpoint_path: Path) -> None:
         checkpoint_path.unlink()
 
 
+def failure_from_exception(request: DownloadRequest, exc: Exception) -> FailedDownload:
+    checkpoint_path = checkpoint_path_for(request.output_root / request.symbol / request.interval)
+    return FailedDownload(
+        symbol=request.symbol,
+        interval=request.interval,
+        error_type=type(exc).__name__,
+        error_message=str(exc),
+        checkpoint_path=str(checkpoint_path),
+        checkpoint_exists=checkpoint_path.exists(),
+        failed_at=utc_now_iso(),
+    )
+
+
 def restore_session_from_checkpoint(
     checkpoint: dict[str, Any],
     *,
@@ -916,6 +949,41 @@ def build_requests(args: argparse.Namespace, symbols: list[str]) -> list[Downloa
     return requests
 
 
+def manifest_payload(
+    *,
+    args: argparse.Namespace,
+    symbols: list[str],
+    run_id: str,
+    summaries: list[DownloadSummary],
+    failures: list[FailedDownload],
+) -> dict[str, Any]:
+    return {
+        "exchange": "binance",
+        "market_type": "spot",
+        "run_id": run_id,
+        "symbol_source": "exchangeInfo" if args.all_spot_symbols else "manual",
+        "requested_symbols": symbols,
+        "requested_intervals": args.intervals,
+        "requested_start": (
+            datetime.fromtimestamp(resolve_start_ms(args) / 1000, tz=UTC)
+            .isoformat()
+            .replace("+00:00", "Z")
+        ),
+        "requested_end_exclusive": parse_datetime_utc(
+            args.end_date, end_value=True
+        ).isoformat().replace("+00:00", "Z"),
+        "start_from_listing": args.start_from_listing,
+        "fallback_base_urls": args.fallback_base_urls,
+        "quote_assets": args.quote_assets,
+        "resume_incomplete": args.resume_incomplete,
+        "continue_on_error": args.continue_on_error,
+        "success_count": len(summaries),
+        "failure_count": len(failures),
+        "downloads": [asdict(summary) for summary in summaries],
+        "failed_downloads": [asdict(failure) for failure in failures],
+    }
+
+
 def resolve_symbols(args: argparse.Namespace) -> list[str]:
     if not args.all_spot_symbols:
         return list(args.symbols)
@@ -963,6 +1031,7 @@ def main(argv: list[str] | None = None) -> int:
     requests = build_requests(args, symbols)
     run_id = make_run_id()
     summaries: list[DownloadSummary] = []
+    failures: list[FailedDownload] = []
 
     for request in requests:
         print(
@@ -970,7 +1039,21 @@ def main(argv: list[str] | None = None) -> int:
             f"{milliseconds_to_iso(request.start_ms)} -> {milliseconds_to_iso(request.end_ms)}",
             file=sys.stderr,
         )
-        summary = download_klines(request, run_id=run_id)
+        try:
+            summary = download_klines(request, run_id=run_id)
+        except Exception as exc:
+            failure = failure_from_exception(request, exc)
+            failures.append(failure)
+            print(
+                f"[failed] {request.symbol} {request.interval} "
+                f"error={failure.error_type}:{failure.error_message}",
+                file=sys.stderr,
+            )
+            if not args.continue_on_error:
+                print("[abort] stopping batch after first failed task", file=sys.stderr)
+                break
+            continue
+
         summaries.append(summary)
         print(
             f"[saved] {summary.symbol} {summary.interval} "
@@ -980,34 +1063,24 @@ def main(argv: list[str] | None = None) -> int:
 
     manifest_path = Path(args.output_root) / f"{run_id}.manifest.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest = {
-        "exchange": "binance",
-        "market_type": "spot",
-        "run_id": run_id,
-        "symbol_source": "exchangeInfo" if args.all_spot_symbols else "manual",
-        "requested_symbols": symbols,
-        "requested_intervals": args.intervals,
-        "requested_start": (
-            datetime.fromtimestamp(resolve_start_ms(args) / 1000, tz=UTC)
-            .isoformat()
-            .replace("+00:00", "Z")
-        ),
-        "requested_end_exclusive": parse_datetime_utc(
-            args.end_date, end_value=True
-        ).isoformat().replace("+00:00", "Z"),
-        "start_from_listing": args.start_from_listing,
-        "fallback_base_urls": args.fallback_base_urls,
-        "quote_assets": args.quote_assets,
-        "resume_incomplete": args.resume_incomplete,
-        "downloads": [asdict(summary) for summary in summaries],
-    }
+    manifest = manifest_payload(
+        args=args,
+        symbols=symbols,
+        run_id=run_id,
+        summaries=summaries,
+        failures=failures,
+    )
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=True, indent=2) + "\n",
         encoding="utf-8",
     )
 
     print(f"[manifest] {manifest_path}", file=sys.stderr)
-    return 0
+    print(
+        f"[summary] success={len(summaries)} failed={len(failures)}",
+        file=sys.stderr,
+    )
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

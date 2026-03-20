@@ -15,6 +15,7 @@ from urllib.error import URLError
 
 from src.ingestion.binance_ohlcv import (
     DownloadRequest,
+    DownloadSummary,
     build_candidate_urls,
     datetime_to_milliseconds,
     fetch_exchange_symbols,
@@ -22,6 +23,7 @@ from src.ingestion.binance_ohlcv import (
     initialize_download_session,
     interval_to_milliseconds,
     kline_row_to_record,
+    main as run_main,
     parse_datetime_utc,
     retry_delay_with_retry_after,
     resolve_start_ms,
@@ -384,6 +386,115 @@ class BinanceOhlcvTests(unittest.TestCase):
 
         self.assertEqual(payload, {"ok": True})
         mocked_sleep.assert_called_once_with(0.0)
+
+    def test_main_continues_after_single_download_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = Namespace(
+                all_spot_symbols=False,
+                symbols=["AAAUSDT", "BBBUSDT"],
+                intervals=["5m"],
+                start_date="2026-03-18",
+                end_date="2026-03-18",
+                base_url="https://data-api.binance.vision",
+                fallback_base_urls=["https://api.binance.com"],
+                exchange_info_base_url="https://api.binance.com",
+                output_root=tmpdir,
+                limit=1000,
+                timeout_seconds=30.0,
+                sleep_seconds=0.0,
+                max_retries=3,
+                retry_delay_seconds=1.0,
+                retry_jitter_seconds=0.0,
+                start_from_listing=False,
+                symbol_statuses=None,
+                quote_assets=None,
+                max_symbols=None,
+                resume_incomplete=True,
+                continue_on_error=True,
+            )
+
+            success = DownloadSummary(
+                symbol="BBBUSDT",
+                interval="5m",
+                data_path=str(Path(tmpdir) / "BBBUSDT" / "5m" / "run_test.jsonl"),
+                metadata_path=str(Path(tmpdir) / "BBBUSDT" / "5m" / "run_test.meta.json"),
+                row_count=12,
+                page_count=1,
+                effective_start="2026-03-18T00:00:00.000Z",
+                first_open_time="2026-03-18T00:00:00.000Z",
+                last_open_time="2026-03-18T00:55:00.000Z",
+                resumed_from_checkpoint=False,
+            )
+
+            with (
+                patch("src.ingestion.binance_ohlcv.parse_args", return_value=args),
+                patch(
+                    "src.ingestion.binance_ohlcv.download_klines",
+                    side_effect=[RuntimeError("boom"), success],
+                ) as mocked_download,
+                patch("src.ingestion.binance_ohlcv.make_run_id", return_value="run_test"),
+            ):
+                exit_code = run_main([])
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(mocked_download.call_count, 2)
+
+            manifest = json.loads(
+                (Path(tmpdir) / "run_test.manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["success_count"], 1)
+            self.assertEqual(manifest["failure_count"], 1)
+            self.assertTrue(manifest["continue_on_error"])
+            self.assertEqual(manifest["downloads"][0]["symbol"], "BBBUSDT")
+            self.assertEqual(manifest["failed_downloads"][0]["symbol"], "AAAUSDT")
+            self.assertEqual(manifest["failed_downloads"][0]["error_message"], "boom")
+
+    def test_main_stops_on_first_failure_when_continue_on_error_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = Namespace(
+                all_spot_symbols=False,
+                symbols=["AAAUSDT", "BBBUSDT"],
+                intervals=["5m"],
+                start_date="2026-03-18",
+                end_date="2026-03-18",
+                base_url="https://data-api.binance.vision",
+                fallback_base_urls=["https://api.binance.com"],
+                exchange_info_base_url="https://api.binance.com",
+                output_root=tmpdir,
+                limit=1000,
+                timeout_seconds=30.0,
+                sleep_seconds=0.0,
+                max_retries=3,
+                retry_delay_seconds=1.0,
+                retry_jitter_seconds=0.0,
+                start_from_listing=False,
+                symbol_statuses=None,
+                quote_assets=None,
+                max_symbols=None,
+                resume_incomplete=True,
+                continue_on_error=False,
+            )
+
+            with (
+                patch("src.ingestion.binance_ohlcv.parse_args", return_value=args),
+                patch(
+                    "src.ingestion.binance_ohlcv.download_klines",
+                    side_effect=RuntimeError("boom"),
+                ) as mocked_download,
+                patch("src.ingestion.binance_ohlcv.make_run_id", return_value="run_test"),
+            ):
+                exit_code = run_main([])
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(mocked_download.call_count, 1)
+
+            manifest = json.loads(
+                (Path(tmpdir) / "run_test.manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["success_count"], 0)
+            self.assertEqual(manifest["failure_count"], 1)
+            self.assertFalse(manifest["continue_on_error"])
+            self.assertEqual(len(manifest["failed_downloads"]), 1)
 
 
 if __name__ == "__main__":
