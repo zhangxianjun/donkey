@@ -1,0 +1,13 @@
+{
+  "pairs": [
+    {
+      "source": "bybit",
+      "symbol": "BTCUSDT",
+      "display_symbol": "BTCUSDT",
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "created_at": "2026-03-20T02:40:32Z",
+      "note": null
+    }
+  ]
+}

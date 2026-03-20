@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="asset-fdb2ae63ad81-title asset-fdb2ae63ad81-desc">
+  <title id="asset-fdb2ae63ad81-title">ALPACA icon</title>
+  <desc id="asset-fdb2ae63ad81-desc">Generated built-in icon for asset ALPACA.</desc>
+  <defs>
+    <linearGradient id="asset-fdb2ae63ad81-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="hsl(69 69% 50%)" />
+      <stop offset="100%" stop-color="hsl(95 77% 62%)" />
+    </linearGradient>
+  </defs>
+  <rect width="96" height="96" rx="28" fill="#0b0e11" />
+  <rect x="7" y="7" width="82" height="82" rx="24" fill="url(#asset-fdb2ae63ad81-gradient)" stroke="hsl(249 42% 24%)" stroke-width="1.5" />
+  <circle cx="70" cy="24" r="14" fill="hsl(97 86% 72%)" fill-opacity="0.22" />
+  <circle cx="26" cy="73" r="12" fill="#ffffff" fill-opacity="0.09" />
+  <text x="48" y="44" text-anchor="middle" fill="#f7f9fb" font-family="'Avenir Next', 'IBM Plex Sans', 'Noto Sans', sans-serif" font-size="24" font-weight="800" letter-spacing="0.04em">ALP</text>
+  <text x="48" y="66" text-anchor="middle" fill="#f7f9fb" font-family="'Avenir Next', 'IBM Plex Sans', 'Noto Sans', sans-serif" font-size="18" font-weight="700" letter-spacing="0.05em">ACA</text>
+</svg>

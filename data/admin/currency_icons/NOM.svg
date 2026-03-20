@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="asset-676e81245f2b-title asset-676e81245f2b-desc">
+  <title id="asset-676e81245f2b-title">NOM icon</title>
+  <desc id="asset-676e81245f2b-desc">Generated built-in icon for asset NOM.</desc>
+  <defs>
+    <linearGradient id="asset-676e81245f2b-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="hsl(136 81% 49%)" />
+      <stop offset="100%" stop-color="hsl(162 88% 61%)" />
+    </linearGradient>
+  </defs>
+  <rect width="96" height="96" rx="28" fill="#0b0e11" />
+  <rect x="7" y="7" width="82" height="82" rx="24" fill="url(#asset-676e81245f2b-gradient)" stroke="hsl(316 42% 24%)" stroke-width="1.5" />
+  <circle cx="70" cy="24" r="14" fill="hsl(151 86% 72%)" fill-opacity="0.22" />
+  <circle cx="26" cy="73" r="12" fill="#ffffff" fill-opacity="0.09" />
+  <text x="48" y="54" text-anchor="middle" fill="#f7f9fb" font-family="'Avenir Next', 'IBM Plex Sans', 'Noto Sans', sans-serif" font-size="24" font-weight="800" letter-spacing="0.04em">NOM</text>
+  
+</svg>

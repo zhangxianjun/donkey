@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="default-title default-desc">
+  <title id="default-title">Default asset icon</title>
+  <desc id="default-desc">Fallback icon used when a specific asset icon is unavailable.</desc>
+  <defs>
+    <linearGradient id="default-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1d2630" />
+      <stop offset="100%" stop-color="#3d4b5f" />
+    </linearGradient>
+  </defs>
+  <rect width="96" height="96" rx="28" fill="#0b0e11" />
+  <rect x="7" y="7" width="82" height="82" rx="24" fill="url(#default-gradient)" stroke="#5c6d82" stroke-width="1.5" />
+  <circle cx="70" cy="24" r="14" fill="#f0b90b" fill-opacity="0.22" />
+  <text x="48" y="48" text-anchor="middle" fill="#f7f9fb" font-family="'Avenir Next', 'IBM Plex Sans', 'Noto Sans', sans-serif" font-size="24" font-weight="800" letter-spacing="0.06em">ICON</text>
+  <text x="48" y="67" text-anchor="middle" fill="#d8e1eb" font-family="'Avenir Next', 'IBM Plex Sans', 'Noto Sans', sans-serif" font-size="13" font-weight="700" letter-spacing="0.12em">DEFAULT</text>
+</svg>

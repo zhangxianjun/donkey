@@ -1,0 +1,2045 @@
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import mimetypes
+import platform
+import re
+import sys
+import threading
+import time
+import uuid
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from functools import lru_cache
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import Request, urlopen
+
+from src.ingestion.binance_ohlcv import (
+    DEFAULT_EXCHANGE_INFO_BASE_URL,
+    DEFAULT_INTERVALS,
+    DEFAULT_KLINE_FALLBACK_BASE_URLS,
+    DEFAULT_MANUAL_START_DATE,
+    DEFAULT_MARKET_DATA_BASE_URL,
+    EXCHANGE_INFO_PATH,
+    MAX_LIMIT,
+    build_candidate_urls,
+    build_requests,
+    download_klines,
+    failure_from_exception,
+    fetch_json_payload,
+    make_run_id,
+    utc_now_iso,
+    validate_args,
+)
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8866
+DEFAULT_RAW_ROOT = Path("data/raw/binance/spot")
+DEFAULT_NORMALIZED_ROOT = Path("data/normalized")
+DEFAULT_STRATEGIES_ROOT = Path("config/strategies")
+DEFAULT_BACKTESTS_ROOT = Path("data/backtests")
+DEFAULT_LOGS_ROOT = Path("logs")
+DEFAULT_QUANT_DB_PATH = Path("db/quant.duckdb")
+DEFAULT_EXPERIMENTS_DB_PATH = Path("db/experiments.duckdb")
+DEFAULT_LOCAL_TRADING_STORE = Path("data/admin/local_trading_pairs.json")
+DEFAULT_CURRENCY_ICON_ROOT = Path("data/admin/currency_icons")
+DEFAULT_QUOTE_ASSET = "USDT"
+DEFAULT_RETRY_JITTER_SECONDS = 0.5
+DEFAULT_SLEEP_SECONDS = 0.1
+DEFAULT_TRADEABLE_ONLY = True
+CURRENCY_ICON_CATALOG_NAME = "catalog.json"
+DEFAULT_CURRENCY_ICON_ASSET = "DEFAULT"
+MAX_CURRENCY_ICON_BYTES = 2 * 1024 * 1024
+ALLOWED_CURRENCY_ICON_EXTENSIONS = {
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+}
+ASSET_INVALID_CHAR_PATTERN = re.compile(r"[\\/\x00-\x1f]")
+SOURCE_ORDER = ("binance", "okx", "bybit", "hl")
+SOURCE_LABELS = {
+    "binance": "币安",
+    "okx": "欧意",
+    "bybit": "Bybit",
+    "hl": "HL",
+}
+INDEX_HTML_PATH = Path(__file__).resolve().parent / "static" / "pairs_dashboard.html"
+ICON_SVG_PATH = Path(__file__).resolve().parent / "static" / "donkey-icon.svg"
+
+
+@dataclass(frozen=True)
+class SourcePair:
+    source: str
+    source_label: str
+    symbol: str
+    display_symbol: str
+    base_asset: str
+    quote_asset: str
+    status: str
+    tradeable: bool
+    source_kind: str
+    created_at: str | None = None
+    note: str | None = None
+
+
+@dataclass(frozen=True)
+class LocalPair:
+    source: str
+    source_label: str
+    symbol: str
+    display_symbol: str
+    root: str
+    intervals: list[str]
+    interval_count: int
+    data_file_count: int
+    metadata_file_count: int
+    checkpoint_count: int
+    last_updated: str | None
+
+
+@dataclass(frozen=True)
+class StrategyEntry:
+    strategy_name: str
+    strategy_version: str
+    description: str
+    exchange: str | None
+    market_type: str | None
+    interval: str | None
+    symbols: list[str]
+    symbol_count: int
+    backtest_start: str | None
+    backtest_end: str | None
+    strategy_path: str
+    signal_path: str | None
+    trades_path: str | None
+    equity_path: str | None
+    summary_path: str | None
+    summary_exists: bool
+    updated_at: str | None
+
+
+@dataclass(frozen=True)
+class BacktestRecord:
+    strategy_name: str
+    strategy_version: str
+    status: str
+    summary_path: str | None
+    summary_exists: bool
+    trades_path: str | None
+    trades_exists: bool
+    equity_path: str | None
+    equity_exists: bool
+    updated_at: str | None
+    metrics: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class DashboardConfig:
+    workspace_root: Path
+    raw_root: Path
+    normalized_root: Path
+    strategies_root: Path
+    backtests_root: Path
+    logs_root: Path
+    quant_db_path: Path
+    experiments_db_path: Path
+    local_trading_store_path: Path
+    currency_icon_root: Path
+    exchange_info_base_url: str
+    market_data_base_url: str
+    fallback_base_urls: tuple[str, ...]
+    timeout_seconds: float
+    max_retries: int
+    retry_delay_seconds: float
+    retry_jitter_seconds: float
+    limit: int
+    sleep_seconds: float
+    default_quote_asset: str
+    default_tradeable_only: bool
+
+
+@dataclass(frozen=True)
+class KlineDownloadRequest:
+    symbol: str
+    intervals: list[str]
+    start_date: str | None
+    end_date: str
+    start_from_listing: bool
+
+
+@dataclass
+class DownloadJob:
+    job_id: str
+    symbol: str
+    intervals: list[str]
+    start_date: str | None
+    end_date: str
+    start_from_listing: bool
+    status: str
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    run_id: str | None = None
+    manifest_path: str | None = None
+    summaries: list[dict[str, Any]] = field(default_factory=list)
+    failures: list[dict[str, Any]] = field(default_factory=list)
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ManualTradingPairRequest:
+    source: str
+    symbol: str
+    quote_asset: str
+    note: str | None
+
+
+class DownloadJobConflictError(RuntimeError):
+    """Raised when a conflicting background download job already exists."""
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run a local admin dashboard for market data and backtest management."
+    )
+    parser.add_argument("--host", default=DEFAULT_HOST, help="Bind host.")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Bind port.")
+    parser.add_argument(
+        "--raw-root",
+        default=str(DEFAULT_RAW_ROOT),
+        help="Local raw root, default: data/raw/binance/spot",
+    )
+    parser.add_argument(
+        "--normalized-root",
+        default=str(DEFAULT_NORMALIZED_ROOT),
+        help="Normalized data root.",
+    )
+    parser.add_argument(
+        "--strategies-root",
+        default=str(DEFAULT_STRATEGIES_ROOT),
+        help="Strategy config root.",
+    )
+    parser.add_argument(
+        "--backtests-root",
+        default=str(DEFAULT_BACKTESTS_ROOT),
+        help="Backtest artifact root.",
+    )
+    parser.add_argument(
+        "--logs-root",
+        default=str(DEFAULT_LOGS_ROOT),
+        help="Log directory root.",
+    )
+    parser.add_argument(
+        "--local-trading-store",
+        default=str(DEFAULT_LOCAL_TRADING_STORE),
+        help="JSON storage path for manually added local trading pairs.",
+    )
+    parser.add_argument(
+        "--currency-icon-root",
+        default=str(DEFAULT_CURRENCY_ICON_ROOT),
+        help="Directory path for currency icon assets.",
+    )
+    parser.add_argument(
+        "--exchange-info-base-url",
+        default=DEFAULT_EXCHANGE_INFO_BASE_URL,
+        help="Binance base URL used for exchangeInfo.",
+    )
+    parser.add_argument(
+        "--market-data-base-url",
+        default=DEFAULT_MARKET_DATA_BASE_URL,
+        help="Binance market data base URL used for klines.",
+    )
+    parser.add_argument(
+        "--fallback-base-urls",
+        nargs="*",
+        default=list(DEFAULT_KLINE_FALLBACK_BASE_URLS),
+        help="Optional fallback Binance base URLs used for klines.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=30.0,
+        help="HTTP timeout per request.",
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Retry count for remote source requests.",
+    )
+    parser.add_argument(
+        "--retry-delay-seconds",
+        type=float,
+        default=1.0,
+        help="Base delay before retry.",
+    )
+    parser.add_argument(
+        "--retry-jitter-seconds",
+        type=float,
+        default=DEFAULT_RETRY_JITTER_SECONDS,
+        help="Additional random jitter added to retry backoff.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=MAX_LIMIT,
+        help="Page size per request. Binance spot klines max is 1000.",
+    )
+    parser.add_argument(
+        "--sleep-seconds",
+        type=float,
+        default=DEFAULT_SLEEP_SECONDS,
+        help="Sleep between pages to reduce burstiness.",
+    )
+    parser.add_argument(
+        "--default-quote-asset",
+        default=DEFAULT_QUOTE_ASSET,
+        help="Default quote asset filter for remote pairs.",
+    )
+    parser.add_argument(
+        "--default-tradeable-only",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_TRADEABLE_ONLY,
+        help="Default tradeable filter for remote pairs.",
+    )
+    return parser.parse_args(argv)
+
+
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
+
+
+def parse_multi_value_query(values: list[str] | None) -> set[str] | None:
+    if not values:
+        return None
+
+    parsed = {
+        item.strip().upper()
+        for raw_value in values
+        for item in raw_value.split(",")
+        if item.strip()
+    }
+    return parsed or None
+
+
+def resolve_quote_asset_filter(
+    values: list[str] | None,
+    *,
+    default_quote_asset: str,
+) -> set[str] | None:
+    parsed = parse_multi_value_query(values)
+    if parsed is None:
+        return {default_quote_asset.upper()} if default_quote_asset.strip() else None
+    if "ALL" in parsed:
+        return None
+    return parsed
+
+
+def parse_bool_query_value(value: str | None, *, default: bool) -> bool:
+    if value is None or value.strip() == "":
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError("Boolean query must be true or false.")
+
+
+def parse_bool_value(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return parse_bool_query_value(value, default=default)
+    raise ValueError("Boolean field must be true or false.")
+
+
+def parse_intervals_value(value: Any) -> list[str]:
+    if value is None:
+        return list(DEFAULT_INTERVALS)
+
+    raw_items: list[str]
+    if isinstance(value, str):
+        raw_items = value.split(",")
+    elif isinstance(value, list):
+        raw_items = []
+        for item in value:
+            raw_items.extend(str(item).split(","))
+    else:
+        raise ValueError("intervals must be a comma-separated string or an array.")
+
+    intervals = dedupe_preserve_order([item.strip().lower() for item in raw_items if item.strip()])
+    if not intervals:
+        raise ValueError("At least one interval is required.")
+    return intervals
+
+
+def isoformat_utc_from_timestamp(timestamp_seconds: float) -> str:
+    return datetime.fromtimestamp(timestamp_seconds, tz=UTC).isoformat().replace("+00:00", "Z")
+
+
+def normalize_symbol(symbol: str) -> str:
+    return symbol.strip().upper().replace("/", "").replace("-", "").replace("_", "")
+
+
+def load_index_html() -> bytes:
+    return INDEX_HTML_PATH.read_bytes()
+
+
+@lru_cache(maxsize=1)
+def cached_index_html() -> bytes:
+    return load_index_html()
+
+
+def load_icon_svg() -> bytes:
+    return ICON_SVG_PATH.read_bytes()
+
+
+@lru_cache(maxsize=1)
+def cached_icon_svg() -> bytes:
+    return load_icon_svg()
+
+
+def normalize_asset_code(asset: str) -> str:
+    normalized = asset.strip().upper()
+    if (
+        not normalized
+        or len(normalized) > 64
+        or normalized in {".", ".."}
+        or any(char.isspace() for char in normalized)
+        or ASSET_INVALID_CHAR_PATTERN.search(normalized)
+    ):
+        raise ValueError("asset contains unsupported characters.")
+    return normalized
+
+
+def ensure_currency_icon_root(config: DashboardConfig) -> Path:
+    config.currency_icon_root.mkdir(parents=True, exist_ok=True)
+    return config.currency_icon_root
+
+
+def currency_icon_catalog_path(config: DashboardConfig) -> Path:
+    return config.currency_icon_root / CURRENCY_ICON_CATALOG_NAME
+
+
+def currency_icon_default_path(config: DashboardConfig) -> Path:
+    return config.currency_icon_root / f"{DEFAULT_CURRENCY_ICON_ASSET}.svg"
+
+
+def normalize_mime_type(mime_type: Any) -> str | None:
+    if mime_type is None:
+        return None
+    normalized = str(mime_type).strip().lower()
+    if not normalized:
+        return None
+    return normalized.partition(";")[0]
+
+
+def sniff_currency_icon_extension(payload: bytes) -> str | None:
+    if payload.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if payload.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if len(payload) >= 12 and payload[:4] == b"RIFF" and payload[8:12] == b"WEBP":
+        return ".webp"
+
+    stripped = payload.lstrip()
+    if stripped.startswith(b"\xef\xbb\xbf"):
+        stripped = stripped[3:]
+    if stripped.startswith(b"<") and b"<svg" in stripped[:512].lower():
+        return ".svg"
+    return None
+
+
+def validate_svg_payload(payload: bytes) -> None:
+    lowered = payload.decode("utf-8", errors="ignore").lower()
+    if "<script" in lowered or "javascript:" in lowered or "onload=" in lowered:
+        raise ValueError("svg content contains disallowed script payload.")
+
+
+def guess_currency_icon_extension(
+    *,
+    filename: str | None,
+    mime_type: str | None,
+    payload: bytes,
+) -> str:
+    sniffed_extension = sniff_currency_icon_extension(payload)
+    if sniffed_extension is not None:
+        return sniffed_extension
+
+    if filename:
+        filename_extension = Path(filename).suffix.lower()
+        if filename_extension in ALLOWED_CURRENCY_ICON_EXTENSIONS:
+            return filename_extension
+
+    normalized_mime_type = normalize_mime_type(mime_type)
+    if normalized_mime_type is not None:
+        for extension, allowed_mime_type in ALLOWED_CURRENCY_ICON_EXTENSIONS.items():
+            if normalized_mime_type == allowed_mime_type:
+                return extension
+
+    raise ValueError("Unsupported icon format. Use SVG, PNG, WEBP, JPG or JPEG.")
+
+
+def find_currency_icon_path(config: DashboardConfig, asset: str) -> Path | None:
+    normalized_asset = normalize_asset_code(asset)
+    root = ensure_currency_icon_root(config)
+    for extension in ALLOWED_CURRENCY_ICON_EXTENSIONS:
+        candidate = root / f"{normalized_asset}{extension}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def load_currency_icon_catalog(config: DashboardConfig) -> dict[str, Any]:
+    path = currency_icon_catalog_path(config)
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def iter_currency_icon_assets(config: DashboardConfig) -> tuple[list[str], set[str]]:
+    root = ensure_currency_icon_root(config)
+    catalog = load_currency_icon_catalog(config)
+
+    catalog_assets: set[str] = set()
+    raw_assets = catalog.get("assets", [])
+    if isinstance(raw_assets, list):
+        for raw_asset in raw_assets:
+            try:
+                catalog_assets.add(normalize_asset_code(str(raw_asset)))
+            except ValueError:
+                continue
+
+    file_assets: set[str] = set()
+    for path in sorted(root.iterdir(), key=lambda item: item.name):
+        if (
+            not path.is_file()
+            or path.name.startswith(".")
+            or path.name == CURRENCY_ICON_CATALOG_NAME
+            or path.suffix.lower() not in ALLOWED_CURRENCY_ICON_EXTENSIONS
+        ):
+            continue
+        asset = path.stem.upper()
+        if asset == DEFAULT_CURRENCY_ICON_ASSET:
+            continue
+        try:
+            file_assets.add(normalize_asset_code(asset))
+        except ValueError:
+            continue
+
+    return sorted(catalog_assets | file_assets), catalog_assets
+
+
+def describe_currency_icon_entry(
+    config: DashboardConfig,
+    *,
+    asset: str,
+    catalog_assets: set[str],
+) -> dict[str, Any]:
+    icon_path = find_currency_icon_path(config, asset)
+    mime_type = None
+    updated_at = None
+    if icon_path is not None:
+        mime_type = ALLOWED_CURRENCY_ICON_EXTENSIONS.get(icon_path.suffix.lower()) or mimetypes.guess_type(
+            str(icon_path)
+        )[0]
+        updated_at = isoformat_utc_from_timestamp(icon_path.stat().st_mtime)
+
+    return {
+        "asset": asset,
+        "exists": icon_path is not None,
+        "cataloged": asset in catalog_assets,
+        "extension": icon_path.suffix.lower().lstrip(".") if icon_path is not None else None,
+        "mime_type": mime_type,
+        "path": str(icon_path) if icon_path is not None else None,
+        "icon_url": f"/currency-icons/{asset}",
+        "updated_at": updated_at,
+    }
+
+
+def list_currency_icons(config: DashboardConfig) -> dict[str, Any]:
+    root = ensure_currency_icon_root(config)
+    catalog = load_currency_icon_catalog(config)
+    assets, catalog_assets = iter_currency_icon_assets(config)
+    entries = [
+        describe_currency_icon_entry(config, asset=asset, catalog_assets=catalog_assets) for asset in assets
+    ]
+    available_count = sum(1 for entry in entries if entry["exists"])
+    missing_assets = [entry["asset"] for entry in entries if not entry["exists"] and entry["cataloged"]]
+
+    return {
+        "root": str(root),
+        "catalog_path": (
+            str(currency_icon_catalog_path(config)) if currency_icon_catalog_path(config).is_file() else None
+        ),
+        "generated_at": catalog.get("generated_at"),
+        "source_counts": catalog.get("source_counts", {}),
+        "count": len(entries),
+        "catalog_count": len(catalog_assets),
+        "available_count": available_count,
+        "missing_count": len(missing_assets),
+        "missing_assets": missing_assets,
+        "entries": entries,
+        "fetched_at": utc_now_iso(),
+    }
+
+
+def parse_currency_icon_upload_payload(payload: Any) -> tuple[str, str | None, str | None, bytes]:
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object.")
+
+    asset = normalize_asset_code(str(payload.get("asset", "")))
+    filename = str(payload.get("filename", "")).strip() or None
+    mime_type = normalize_mime_type(payload.get("mime_type"))
+    content_base64 = str(payload.get("content_base64", "")).strip()
+    if not content_base64:
+        raise ValueError("content_base64 is required.")
+    if content_base64.startswith("data:") and "," in content_base64:
+        content_base64 = content_base64.split(",", 1)[1]
+
+    try:
+        content = base64.b64decode(content_base64, validate=True)
+    except ValueError as exc:
+        raise ValueError("content_base64 is not valid base64.") from exc
+
+    if not content:
+        raise ValueError("icon content is empty.")
+    if len(content) > MAX_CURRENCY_ICON_BYTES:
+        raise ValueError("icon file is too large. Max size is 2 MB.")
+
+    extension = guess_currency_icon_extension(filename=filename, mime_type=mime_type, payload=content)
+    if extension == ".svg":
+        validate_svg_payload(content)
+    return asset, filename, extension, content
+
+
+def save_currency_icon(config: DashboardConfig, payload: Any) -> dict[str, Any]:
+    asset, _, extension, content = parse_currency_icon_upload_payload(payload)
+    root = ensure_currency_icon_root(config)
+    for allowed_extension in ALLOWED_CURRENCY_ICON_EXTENSIONS:
+        existing_path = root / f"{asset}{allowed_extension}"
+        if existing_path.is_file():
+            existing_path.unlink()
+
+    icon_path = root / f"{asset}{extension}"
+    icon_path.write_bytes(content)
+    _, catalog_assets = iter_currency_icon_assets(config)
+    return describe_currency_icon_entry(config, asset=asset, catalog_assets=catalog_assets)
+
+
+def build_http_request(url: str, *, method: str, body: bytes | None = None) -> Request:
+    headers = {
+        "Accept": "application/json",
+        "Connection": "close",
+        "User-Agent": "donkey-admin/0.1",
+    }
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    return Request(url, data=body, headers=headers, method=method)
+
+
+def fetch_json_request(
+    request: Request,
+    *,
+    timeout_seconds: float,
+    max_retries: int,
+    retry_delay_seconds: float,
+    retry_jitter_seconds: float,
+    request_label: str,
+) -> Any:
+    last_error: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            with urlopen(request, timeout=timeout_seconds) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except (URLError, TimeoutError, OSError, json.JSONDecodeError, HTTPError) as exc:
+            last_error = exc
+            if attempt >= max_retries:
+                break
+            time.sleep(retry_delay_seconds + retry_jitter_seconds * max(0, attempt))
+    raise RuntimeError(f"{request_label} request failed: {last_error}")
+
+
+def fetch_okx_pairs(
+    *,
+    timeout_seconds: float,
+    max_retries: int,
+    retry_delay_seconds: float,
+    retry_jitter_seconds: float,
+    allowed_quote_assets: set[str] | None,
+    tradeable_only: bool,
+) -> list[SourcePair]:
+    url = "https://www.okx.com/api/v5/public/instruments?instType=SPOT"
+    payload = fetch_json_request(
+        build_http_request(url, method="GET"),
+        timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
+        retry_delay_seconds=retry_delay_seconds,
+        retry_jitter_seconds=retry_jitter_seconds,
+        request_label="okx instruments",
+    )
+    if not isinstance(payload, dict) or str(payload.get("code")) != "0":
+        raise RuntimeError(f"Unexpected OKX response: {payload}")
+
+    pairs: list[SourcePair] = []
+    for item in payload.get("data", []):
+        base_asset = str(item.get("baseCcy", "")).upper()
+        quote_asset = str(item.get("quoteCcy", "")).upper()
+        status = str(item.get("state", "")).upper()
+        tradeable = status == "LIVE"
+        if allowed_quote_assets is not None and quote_asset not in allowed_quote_assets:
+            continue
+        if tradeable_only and not tradeable:
+            continue
+        display_symbol = str(item.get("instId", "")).upper()
+        symbol = display_symbol.replace("-", "")
+        if not symbol:
+            continue
+        pairs.append(
+            SourcePair(
+                source="okx",
+                source_label=SOURCE_LABELS["okx"],
+                symbol=symbol,
+                display_symbol=display_symbol,
+                base_asset=base_asset,
+                quote_asset=quote_asset,
+                status=status or "UNKNOWN",
+                tradeable=tradeable,
+                source_kind="remote",
+            )
+        )
+    return sorted(pairs, key=lambda pair: pair.symbol)
+
+
+def fetch_bybit_pairs(
+    *,
+    timeout_seconds: float,
+    max_retries: int,
+    retry_delay_seconds: float,
+    retry_jitter_seconds: float,
+    allowed_quote_assets: set[str] | None,
+    tradeable_only: bool,
+) -> list[SourcePair]:
+    cursor: str | None = None
+    pairs: list[SourcePair] = []
+    seen_cursors: set[str] = set()
+
+    while True:
+        params = {"category": "spot", "limit": "1000"}
+        if cursor:
+            params["cursor"] = cursor
+        url = "https://api.bybit.com/v5/market/instruments-info?" + urlencode(params)
+        payload = fetch_json_request(
+            build_http_request(url, method="GET"),
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            retry_delay_seconds=retry_delay_seconds,
+            retry_jitter_seconds=retry_jitter_seconds,
+            request_label="bybit instruments",
+        )
+        if not isinstance(payload, dict) or int(payload.get("retCode", -1)) != 0:
+            raise RuntimeError(f"Unexpected Bybit response: {payload}")
+
+        result = payload.get("result", {})
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Unexpected Bybit result: {payload}")
+
+        for item in result.get("list", []):
+            base_asset = str(item.get("baseCoin", "")).upper()
+            quote_asset = str(item.get("quoteCoin", "")).upper()
+            status = str(item.get("status", "")).upper()
+            tradeable = status == "TRADING"
+            if allowed_quote_assets is not None and quote_asset not in allowed_quote_assets:
+                continue
+            if tradeable_only and not tradeable:
+                continue
+            symbol = str(item.get("symbol", "")).upper()
+            if not symbol:
+                continue
+            pairs.append(
+                SourcePair(
+                    source="bybit",
+                    source_label=SOURCE_LABELS["bybit"],
+                    symbol=symbol,
+                    display_symbol=symbol,
+                    base_asset=base_asset,
+                    quote_asset=quote_asset,
+                    status=status or "UNKNOWN",
+                    tradeable=tradeable,
+                    source_kind="remote",
+                )
+            )
+
+        next_cursor = str(result.get("nextPageCursor", "")).strip()
+        if not next_cursor or next_cursor in seen_cursors:
+            break
+        seen_cursors.add(next_cursor)
+        cursor = next_cursor
+
+    return sorted(pairs, key=lambda pair: pair.symbol)
+
+
+def fetch_hl_pairs(
+    *,
+    timeout_seconds: float,
+    max_retries: int,
+    retry_delay_seconds: float,
+    retry_jitter_seconds: float,
+    allowed_quote_assets: set[str] | None,
+    tradeable_only: bool,
+) -> list[SourcePair]:
+    payload = fetch_json_request(
+        build_http_request(
+            "https://api.hyperliquid.xyz/info",
+            method="POST",
+            body=json.dumps({"type": "spotMeta"}).encode("utf-8"),
+        ),
+        timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
+        retry_delay_seconds=retry_delay_seconds,
+        retry_jitter_seconds=retry_jitter_seconds,
+        request_label="hl spotMeta",
+    )
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Unexpected HL response: {payload}")
+
+    tokens_raw = payload.get("tokens")
+    universe_raw = payload.get("universe")
+    if not isinstance(tokens_raw, list) or not isinstance(universe_raw, list):
+        raise RuntimeError(f"Unexpected HL response shape: {payload}")
+
+    token_names = {int(item.get("index")): str(item.get("name", "")).upper() for item in tokens_raw}
+    pairs: list[SourcePair] = []
+    for item in universe_raw:
+        token_indexes = item.get("tokens", [])
+        if not isinstance(token_indexes, list) or len(token_indexes) != 2:
+            continue
+        base_asset = token_names.get(int(token_indexes[0]), "")
+        quote_asset = token_names.get(int(token_indexes[1]), "")
+        tradeable = bool(item.get("isCanonical"))
+        if allowed_quote_assets is not None and quote_asset not in allowed_quote_assets:
+            continue
+        if tradeable_only and not tradeable:
+            continue
+        display_symbol = str(item.get("name", "")).upper()
+        if not display_symbol or display_symbol.startswith("@"):
+            continue
+        symbol = display_symbol.replace("/", "").replace("-", "")
+        pairs.append(
+            SourcePair(
+                source="hl",
+                source_label=SOURCE_LABELS["hl"],
+                symbol=symbol,
+                display_symbol=display_symbol,
+                base_asset=base_asset,
+                quote_asset=quote_asset,
+                status="TRADING" if tradeable else "INACTIVE",
+                tradeable=tradeable,
+                source_kind="remote",
+            )
+        )
+    return sorted(pairs, key=lambda pair: pair.symbol)
+
+
+def fetch_binance_pairs(
+    *,
+    base_url: str,
+    timeout_seconds: float,
+    max_retries: int,
+    retry_delay_seconds: float,
+    allowed_statuses: set[str] | None = None,
+    allowed_quote_assets: set[str] | None = None,
+) -> list[SourcePair]:
+    params = {
+        "permissions": "SPOT",
+        "showPermissionSets": "false",
+    }
+    payload = fetch_json_payload(
+        build_candidate_urls(base_url, EXCHANGE_INFO_PATH, params),
+        timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
+        retry_delay_seconds=retry_delay_seconds,
+        retry_jitter_seconds=0.0,
+        request_label="admin exchangeInfo",
+    )
+
+    if not isinstance(payload, dict) or "symbols" not in payload:
+        raise RuntimeError(f"Unexpected Binance response: {payload}")
+
+    pairs: list[SourcePair] = []
+    for raw_symbol in payload["symbols"]:
+        symbol = str(raw_symbol.get("symbol", "")).upper()
+        status = str(raw_symbol.get("status", "")).upper()
+        base_asset = str(raw_symbol.get("baseAsset", "")).upper()
+        quote_asset = str(raw_symbol.get("quoteAsset", "")).upper()
+        tradeable = status == "TRADING"
+        if not symbol:
+            continue
+        if allowed_statuses is not None and status not in allowed_statuses:
+            continue
+        if allowed_quote_assets is not None and quote_asset not in allowed_quote_assets:
+            continue
+        pairs.append(
+            SourcePair(
+                source="binance",
+                source_label=SOURCE_LABELS["binance"],
+                symbol=symbol,
+                display_symbol=symbol,
+                base_asset=base_asset,
+                quote_asset=quote_asset,
+                status=status,
+                tradeable=tradeable,
+                source_kind="remote",
+            )
+        )
+    return sorted(pairs, key=lambda pair: pair.symbol)
+
+
+def fetch_source_pairs(
+    *,
+    source: str,
+    config: DashboardConfig,
+    allowed_quote_assets: set[str] | None,
+    tradeable_only: bool,
+) -> list[SourcePair]:
+    normalized_source = source.strip().lower()
+    if normalized_source == "binance":
+        allowed_statuses = {"TRADING"} if tradeable_only else None
+        return fetch_binance_pairs(
+            base_url=config.exchange_info_base_url,
+            timeout_seconds=config.timeout_seconds,
+            max_retries=config.max_retries,
+            retry_delay_seconds=config.retry_delay_seconds,
+            allowed_statuses=allowed_statuses,
+            allowed_quote_assets=allowed_quote_assets,
+        )
+    if normalized_source == "okx":
+        return fetch_okx_pairs(
+            timeout_seconds=config.timeout_seconds,
+            max_retries=config.max_retries,
+            retry_delay_seconds=config.retry_delay_seconds,
+            retry_jitter_seconds=config.retry_jitter_seconds,
+            allowed_quote_assets=allowed_quote_assets,
+            tradeable_only=tradeable_only,
+        )
+    if normalized_source == "bybit":
+        return fetch_bybit_pairs(
+            timeout_seconds=config.timeout_seconds,
+            max_retries=config.max_retries,
+            retry_delay_seconds=config.retry_delay_seconds,
+            retry_jitter_seconds=config.retry_jitter_seconds,
+            allowed_quote_assets=allowed_quote_assets,
+            tradeable_only=tradeable_only,
+        )
+    if normalized_source == "hl":
+        return fetch_hl_pairs(
+            timeout_seconds=config.timeout_seconds,
+            max_retries=config.max_retries,
+            retry_delay_seconds=config.retry_delay_seconds,
+            retry_jitter_seconds=config.retry_jitter_seconds,
+            allowed_quote_assets=allowed_quote_assets,
+            tradeable_only=tradeable_only,
+        )
+    raise ValueError(f"Unsupported source: {source}")
+
+
+def resolve_source_raw_root(config: DashboardConfig, source: str) -> Path:
+    normalized_source = source.strip().lower()
+    if normalized_source not in SOURCE_LABELS:
+        raise ValueError(f"Unsupported source: {source}")
+    if normalized_source == "binance":
+        return config.raw_root
+    return (config.workspace_root / "data" / "raw" / normalized_source / "spot").resolve()
+
+
+def discover_local_pairs(raw_root: Path, *, source: str = "binance") -> list[LocalPair]:
+    normalized_source = source.strip().lower()
+    if normalized_source not in SOURCE_LABELS:
+        raise ValueError(f"Unsupported source: {source}")
+    if not raw_root.exists() or not raw_root.is_dir():
+        return []
+
+    pairs: list[LocalPair] = []
+    for symbol_dir in sorted(raw_root.iterdir(), key=lambda path: path.name):
+        if not symbol_dir.is_dir() or symbol_dir.name.startswith("."):
+            continue
+
+        intervals: list[str] = []
+        data_file_count = 0
+        metadata_file_count = 0
+        checkpoint_count = 0
+        last_updated: float | None = None
+
+        for interval_dir in sorted(symbol_dir.iterdir(), key=lambda path: path.name):
+            if not interval_dir.is_dir() or interval_dir.name.startswith("."):
+                continue
+
+            interval_has_files = False
+            for file_path in sorted(interval_dir.iterdir(), key=lambda path: path.name):
+                if not file_path.is_file():
+                    continue
+                interval_has_files = True
+                file_stat = file_path.stat()
+                if last_updated is None or file_stat.st_mtime > last_updated:
+                    last_updated = file_stat.st_mtime
+                if file_path.name.endswith(".jsonl"):
+                    data_file_count += 1
+                elif file_path.name.endswith(".meta.json"):
+                    metadata_file_count += 1
+                elif file_path.name == "_checkpoint.json":
+                    checkpoint_count += 1
+
+            if interval_has_files:
+                intervals.append(interval_dir.name)
+
+        if not intervals:
+            continue
+
+        display_symbol = symbol_dir.name.upper()
+        pairs.append(
+            LocalPair(
+                source=normalized_source,
+                source_label=SOURCE_LABELS[normalized_source],
+                symbol=normalize_symbol(display_symbol),
+                display_symbol=display_symbol,
+                root=str(raw_root),
+                intervals=intervals,
+                interval_count=len(intervals),
+                data_file_count=data_file_count,
+                metadata_file_count=metadata_file_count,
+                checkpoint_count=checkpoint_count,
+                last_updated=(
+                    isoformat_utc_from_timestamp(last_updated) if last_updated is not None else None
+                ),
+            )
+        )
+
+    return sorted(pairs, key=lambda pair: (pair.source, pair.symbol))
+
+
+def discover_local_pairs_catalog(
+    config: DashboardConfig,
+    *,
+    source: str | None = None,
+) -> tuple[list[LocalPair], dict[str, dict[str, Any]]]:
+    sources = [source] if source is not None else list(SOURCE_ORDER)
+    pairs: list[LocalPair] = []
+    roots: dict[str, dict[str, Any]] = {}
+    for source_name in sources:
+        raw_root = resolve_source_raw_root(config, source_name)
+        source_pairs = discover_local_pairs(raw_root, source=source_name)
+        roots[source_name] = {
+            "source": source_name,
+            "source_label": SOURCE_LABELS[source_name],
+            "path": str(raw_root),
+            "exists": raw_root.exists(),
+            "count": len(source_pairs),
+        }
+        pairs.extend(source_pairs)
+    return sorted(pairs, key=lambda pair: (pair.source, pair.symbol)), roots
+
+
+def next_relevant_line(lines: list[str], start_index: int) -> tuple[str | None, int | None]:
+    for line in lines[start_index:]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        return stripped, len(line) - len(line.lstrip(" "))
+    return None, None
+
+
+def parse_yaml_scalar(value: str) -> Any:
+    normalized = value.strip()
+    if normalized in {"null", "Null", "NULL", "~"}:
+        return None
+    if normalized in {"true", "True", "TRUE"}:
+        return True
+    if normalized in {"false", "False", "FALSE"}:
+        return False
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {"'", '"'}:
+        return normalized[1:-1]
+    try:
+        return int(normalized)
+    except ValueError:
+        pass
+    try:
+        return float(normalized)
+    except ValueError:
+        pass
+    return normalized
+
+
+def parse_simple_yaml_file(path: Path) -> dict[str, Any]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    root: dict[str, Any] = {}
+    stack: list[tuple[int, dict[str, Any] | list[Any]]] = [(-1, root)]
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        while len(stack) > 1 and indent <= stack[-1][0]:
+            stack.pop()
+        container = stack[-1][1]
+
+        if stripped.startswith("- "):
+            if not isinstance(container, list):
+                raise ValueError(f"Unexpected list item in {path}: {line}")
+            container.append(parse_yaml_scalar(stripped[2:]))
+            continue
+
+        if ":" not in stripped:
+            continue
+
+        key, _, raw_value = stripped.partition(":")
+        key = key.strip()
+        value = raw_value.strip()
+        if not isinstance(container, dict):
+            raise ValueError(f"Unexpected mapping item in {path}: {line}")
+
+        if value == "":
+            next_line, next_indent = next_relevant_line(lines, index + 1)
+            if next_line is not None and next_indent is not None and next_indent > indent:
+                child: dict[str, Any] | list[Any]
+                child = [] if next_line.startswith("- ") else {}
+            else:
+                child = {}
+            container[key] = child
+            stack.append((indent, child))
+            continue
+
+        container[key] = parse_yaml_scalar(value)
+
+    return root
+
+
+def resolve_workspace_path(config: DashboardConfig, raw_path: str | None) -> Path | None:
+    if raw_path is None or raw_path.strip() == "":
+        return None
+    candidate = Path(raw_path)
+    if candidate.is_absolute():
+        return candidate
+    return (config.workspace_root / candidate).resolve()
+
+
+def discover_strategy_entries(config: DashboardConfig) -> list[StrategyEntry]:
+    if not config.strategies_root.exists():
+        return []
+
+    entries: list[StrategyEntry] = []
+    for path in sorted(config.strategies_root.glob("*.yaml")):
+        try:
+            parsed = parse_simple_yaml_file(path)
+        except Exception:
+            parsed = {}
+
+        universe = parsed.get("universe", {}) if isinstance(parsed.get("universe"), dict) else {}
+        backtest = parsed.get("backtest", {}) if isinstance(parsed.get("backtest"), dict) else {}
+        artifacts = parsed.get("artifacts", {}) if isinstance(parsed.get("artifacts"), dict) else {}
+        symbols = universe.get("symbols", []) if isinstance(universe.get("symbols"), list) else []
+        summary_path = resolve_workspace_path(config, str(artifacts.get("summary_path", "")) or None)
+        updated_at = None
+        if summary_path is not None and summary_path.exists():
+            updated_at = isoformat_utc_from_timestamp(summary_path.stat().st_mtime)
+        else:
+            updated_at = isoformat_utc_from_timestamp(path.stat().st_mtime)
+
+        entries.append(
+            StrategyEntry(
+                strategy_name=str(parsed.get("strategy_name", path.stem)),
+                strategy_version=str(parsed.get("strategy_version", "unknown")),
+                description=str(parsed.get("description", "")),
+                exchange=str(universe.get("exchange")) if universe.get("exchange") is not None else None,
+                market_type=(
+                    str(universe.get("market_type"))
+                    if universe.get("market_type") is not None
+                    else None
+                ),
+                interval=str(universe.get("interval")) if universe.get("interval") is not None else None,
+                symbols=[str(item) for item in symbols],
+                symbol_count=len(symbols),
+                backtest_start=(
+                    str(backtest.get("start_date")) if backtest.get("start_date") is not None else None
+                ),
+                backtest_end=(
+                    str(backtest.get("end_date")) if backtest.get("end_date") is not None else None
+                ),
+                strategy_path=str(path),
+                signal_path=str(resolve_workspace_path(config, str(artifacts.get("signal_path", "")) or None))
+                if artifacts.get("signal_path") is not None
+                else None,
+                trades_path=str(resolve_workspace_path(config, str(artifacts.get("trades_path", "")) or None))
+                if artifacts.get("trades_path") is not None
+                else None,
+                equity_path=str(resolve_workspace_path(config, str(artifacts.get("equity_path", "")) or None))
+                if artifacts.get("equity_path") is not None
+                else None,
+                summary_path=str(summary_path) if summary_path is not None else None,
+                summary_exists=bool(summary_path and summary_path.exists()),
+                updated_at=updated_at,
+            )
+        )
+    return entries
+
+
+def load_summary_metrics(summary_path: Path | None) -> dict[str, Any] | None:
+    if summary_path is None or not summary_path.exists():
+        return None
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    metrics: dict[str, Any] = {}
+    for key in ("total_return", "cagr", "max_drawdown", "sharpe", "win_rate", "trade_count"):
+        if key in payload:
+            metrics[key] = payload[key]
+    return metrics or payload
+
+
+def discover_backtest_records(config: DashboardConfig) -> list[BacktestRecord]:
+    entries = discover_strategy_entries(config)
+    records: list[BacktestRecord] = []
+    for entry in entries:
+        summary_path = Path(entry.summary_path) if entry.summary_path else None
+        trades_path = Path(entry.trades_path) if entry.trades_path else None
+        equity_path = Path(entry.equity_path) if entry.equity_path else None
+        summary_exists = bool(summary_path and summary_path.exists())
+        trades_exists = bool(trades_path and trades_path.exists())
+        equity_exists = bool(equity_path and equity_path.exists())
+        updated_candidates = [
+            path.stat().st_mtime
+            for path in (summary_path, trades_path, equity_path)
+            if path is not None and path.exists()
+        ]
+        updated_at = (
+            isoformat_utc_from_timestamp(max(updated_candidates)) if updated_candidates else None
+        )
+        status = "ready" if summary_exists else "pending"
+        records.append(
+            BacktestRecord(
+                strategy_name=entry.strategy_name,
+                strategy_version=entry.strategy_version,
+                status=status,
+                summary_path=entry.summary_path,
+                summary_exists=summary_exists,
+                trades_path=entry.trades_path,
+                trades_exists=trades_exists,
+                equity_path=entry.equity_path,
+                equity_exists=equity_exists,
+                updated_at=updated_at,
+                metrics=load_summary_metrics(summary_path),
+            )
+        )
+    return records
+
+
+def infer_base_asset(symbol: str, quote_asset: str) -> str:
+    normalized_symbol = symbol.strip().upper()
+    normalized_quote = quote_asset.strip().upper()
+    for separator in ("-", "/", "_"):
+        if separator in normalized_symbol:
+            left, _, right = normalized_symbol.partition(separator)
+            if right == normalized_quote and left:
+                return left
+    if normalized_symbol.endswith(normalized_quote) and len(normalized_symbol) > len(normalized_quote):
+        return normalized_symbol[: -len(normalized_quote)]
+    return normalized_symbol
+
+
+def normalize_display_symbol(source: str, symbol: str, quote_asset: str) -> str:
+    normalized_symbol = symbol.strip().upper()
+    base_asset = infer_base_asset(normalized_symbol, quote_asset)
+    normalized_quote = quote_asset.strip().upper()
+    if source == "okx":
+        return f"{base_asset}-{normalized_quote}"
+    if source == "hl":
+        return f"{base_asset}/{normalized_quote}"
+    return normalized_symbol.replace("/", "").replace("-", "").replace("_", "")
+
+
+def load_local_trading_pairs(config: DashboardConfig) -> list[SourcePair]:
+    path = config.local_trading_store_path
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    items = payload.get("pairs", payload if isinstance(payload, list) else [])
+    if not isinstance(items, list):
+        return []
+
+    pairs: list[SourcePair] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source", "")).strip().lower()
+        symbol = str(item.get("symbol", "")).strip().upper()
+        quote_asset = str(item.get("quote_asset", DEFAULT_QUOTE_ASSET)).strip().upper()
+        if source not in SOURCE_LABELS or not symbol:
+            continue
+        pairs.append(
+            SourcePair(
+                source=source,
+                source_label=SOURCE_LABELS[source],
+                symbol=normalize_symbol(symbol),
+                display_symbol=str(item.get("display_symbol", normalize_display_symbol(source, symbol, quote_asset))),
+                base_asset=str(item.get("base_asset", infer_base_asset(symbol, quote_asset))).strip().upper(),
+                quote_asset=quote_asset,
+                status="LOCAL",
+                tradeable=True,
+                source_kind="manual",
+                created_at=str(item.get("created_at", "")) or None,
+                note=str(item.get("note", "")) or None,
+            )
+        )
+    return sorted(pairs, key=lambda pair: (pair.source, pair.symbol))
+
+
+def save_local_trading_pairs(config: DashboardConfig, pairs: list[SourcePair]) -> None:
+    config.local_trading_store_path.parent.mkdir(parents=True, exist_ok=True)
+    serializable = {
+        "pairs": [
+            {
+                "source": pair.source,
+                "symbol": pair.symbol,
+                "display_symbol": pair.display_symbol,
+                "base_asset": pair.base_asset,
+                "quote_asset": pair.quote_asset,
+                "created_at": pair.created_at,
+                "note": pair.note,
+            }
+            for pair in pairs
+        ]
+    }
+    config.local_trading_store_path.write_text(
+        json.dumps(serializable, ensure_ascii=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def filter_local_trading_pairs(
+    pairs: list[SourcePair],
+    *,
+    source: str | None,
+    allowed_quote_assets: set[str] | None,
+) -> list[SourcePair]:
+    filtered: list[SourcePair] = []
+    normalized_source = source.strip().lower() if source else None
+    for pair in pairs:
+        if normalized_source is not None and pair.source != normalized_source:
+            continue
+        if allowed_quote_assets is not None and pair.quote_asset not in allowed_quote_assets:
+            continue
+        filtered.append(pair)
+    return filtered
+
+
+def parse_download_request_payload(payload: Any) -> KlineDownloadRequest:
+    if not isinstance(payload, dict):
+        raise ValueError("JSON body must be an object.")
+
+    symbol = str(payload.get("symbol", "")).strip().upper()
+    if not symbol:
+        raise ValueError("symbol is required.")
+
+    start_date_raw = payload.get("start_date")
+    start_date = None if start_date_raw in {None, ""} else str(start_date_raw).strip()
+    end_date_raw = payload.get("end_date")
+    if end_date_raw in {None, ""}:
+        end_date = datetime.now(UTC).date().isoformat()
+    else:
+        end_date = str(end_date_raw).strip()
+
+    return KlineDownloadRequest(
+        symbol=symbol,
+        intervals=parse_intervals_value(payload.get("intervals")),
+        start_date=start_date,
+        end_date=end_date,
+        start_from_listing=parse_bool_value(payload.get("start_from_listing"), default=True),
+    )
+
+
+def parse_manual_trading_pair_payload(payload: Any) -> ManualTradingPairRequest:
+    if not isinstance(payload, dict):
+        raise ValueError("JSON body must be an object.")
+
+    source = str(payload.get("source", "")).strip().lower()
+    if source not in SOURCE_LABELS:
+        raise ValueError("source must be one of: binance, okx, bybit, hl.")
+
+    symbol = str(payload.get("symbol", "")).strip().upper()
+    if not symbol:
+        raise ValueError("symbol is required.")
+
+    quote_asset = str(payload.get("quote_asset", DEFAULT_QUOTE_ASSET)).strip().upper()
+    if not quote_asset:
+        raise ValueError("quote_asset is required.")
+
+    note_value = payload.get("note")
+    note = None if note_value in {None, ""} else str(note_value).strip()
+
+    return ManualTradingPairRequest(
+        source=source,
+        symbol=symbol,
+        quote_asset=quote_asset,
+        note=note,
+    )
+
+
+def add_local_trading_pair(
+    config: DashboardConfig,
+    request: ManualTradingPairRequest,
+) -> SourcePair:
+    pairs = load_local_trading_pairs(config)
+    normalized_symbol = normalize_symbol(request.symbol)
+    for pair in pairs:
+        if pair.source == request.source and pair.symbol == normalized_symbol:
+            raise ValueError(f"{request.source}:{normalized_symbol} already exists.")
+
+    new_pair = SourcePair(
+        source=request.source,
+        source_label=SOURCE_LABELS[request.source],
+        symbol=normalized_symbol,
+        display_symbol=normalize_display_symbol(request.source, request.symbol, request.quote_asset),
+        base_asset=infer_base_asset(request.symbol, request.quote_asset),
+        quote_asset=request.quote_asset,
+        status="LOCAL",
+        tradeable=True,
+        source_kind="manual",
+        created_at=utc_now_iso(),
+        note=request.note,
+    )
+    save_local_trading_pairs(config, pairs + [new_pair])
+    return new_pair
+
+
+def build_download_args(
+    *,
+    config: DashboardConfig,
+    request: KlineDownloadRequest,
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        all_spot_symbols=False,
+        symbols=[request.symbol],
+        intervals=list(request.intervals),
+        start_date=request.start_date,
+        end_date=request.end_date,
+        base_url=config.market_data_base_url,
+        fallback_base_urls=list(config.fallback_base_urls),
+        exchange_info_base_url=config.exchange_info_base_url,
+        output_root=str(config.raw_root),
+        limit=config.limit,
+        timeout_seconds=config.timeout_seconds,
+        sleep_seconds=config.sleep_seconds,
+        max_retries=config.max_retries,
+        retry_delay_seconds=config.retry_delay_seconds,
+        retry_jitter_seconds=config.retry_jitter_seconds,
+        start_from_listing=request.start_from_listing,
+        symbol_statuses=None,
+        quote_assets=None,
+        max_symbols=None,
+        resume_incomplete=True,
+        continue_on_error=True,
+    )
+
+
+class DownloadJobRegistry:
+    def __init__(self, config: DashboardConfig) -> None:
+        self._config = config
+        self._jobs: dict[str, DownloadJob] = {}
+        self._lock = threading.Lock()
+
+    def create_job(self, request: KlineDownloadRequest) -> DownloadJob:
+        with self._lock:
+            for existing in self._jobs.values():
+                if existing.symbol == request.symbol and existing.status in {"queued", "running"}:
+                    raise DownloadJobConflictError(
+                        f"{request.symbol} already has an active download job."
+                    )
+
+            job = DownloadJob(
+                job_id=uuid.uuid4().hex[:12],
+                symbol=request.symbol,
+                intervals=list(request.intervals),
+                start_date=request.start_date,
+                end_date=request.end_date,
+                start_from_listing=request.start_from_listing,
+                status="queued",
+                created_at=utc_now_iso(),
+            )
+            self._jobs[job.job_id] = job
+
+        thread = threading.Thread(target=self._run_job, args=(job.job_id,), daemon=True)
+        thread.start()
+        return self._clone_job(job)
+
+    def list_jobs(self) -> list[DownloadJob]:
+        with self._lock:
+            jobs = sorted(
+                self._jobs.values(),
+                key=lambda item: (item.created_at, item.job_id),
+                reverse=True,
+            )
+            return [self._clone_job(job) for job in jobs]
+
+    @staticmethod
+    def _clone_job(job: DownloadJob) -> DownloadJob:
+        return DownloadJob(**asdict(job))
+
+    def _write_manifest(
+        self,
+        *,
+        job: DownloadJob,
+        args: argparse.Namespace,
+        summaries: list[dict[str, Any]],
+        failures: list[dict[str, Any]],
+    ) -> Path:
+        manifest_path = self._config.raw_root / f"{job.run_id}.manifest.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "exchange": "binance",
+            "market_type": "spot",
+            "run_id": job.run_id,
+            "symbol_source": "manual",
+            "requested_symbols": [job.symbol],
+            "requested_intervals": list(job.intervals),
+            "requested_start": job.start_date or DEFAULT_MANUAL_START_DATE,
+            "requested_end_exclusive": job.end_date,
+            "start_from_listing": job.start_from_listing,
+            "fallback_base_urls": args.fallback_base_urls,
+            "resume_incomplete": args.resume_incomplete,
+            "continue_on_error": args.continue_on_error,
+            "success_count": len(summaries),
+            "failure_count": len(failures),
+            "downloads": summaries,
+            "failed_downloads": failures,
+            "finished_at": utc_now_iso(),
+        }
+        manifest_path.write_text(
+            json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return manifest_path
+
+    def _run_job(self, job_id: str) -> None:
+        with self._lock:
+            job = self._jobs[job_id]
+            job.status = "running"
+            job.started_at = utc_now_iso()
+            job.run_id = f"{make_run_id()}_{job.job_id}"
+            request = KlineDownloadRequest(
+                symbol=job.symbol,
+                intervals=list(job.intervals),
+                start_date=job.start_date,
+                end_date=job.end_date,
+                start_from_listing=job.start_from_listing,
+            )
+
+        summary_dicts: list[dict[str, Any]] = []
+        failure_dicts: list[dict[str, Any]] = []
+        manifest_path: Path | None = None
+        error_message: str | None = None
+
+        try:
+            args = build_download_args(config=self._config, request=request)
+            validate_args(args)
+            requests = build_requests(args, [request.symbol])
+
+            for download_request in requests:
+                print(
+                    f"[admin-download] {download_request.symbol} {download_request.interval} "
+                    f"run_id={job.run_id}",
+                    file=sys.stderr,
+                )
+                try:
+                    summary = download_klines(download_request, run_id=job.run_id or make_run_id())
+                except Exception as exc:
+                    failure = failure_from_exception(download_request, exc)
+                    failure_dicts.append(asdict(failure))
+                    print(
+                        f"[admin-download-failed] {download_request.symbol} "
+                        f"{download_request.interval} error={failure.error_type}:{failure.error_message}",
+                        file=sys.stderr,
+                    )
+                    continue
+
+                summary_dicts.append(asdict(summary))
+                print(
+                    f"[admin-download-saved] {summary.symbol} {summary.interval} "
+                    f"rows={summary.row_count} file={summary.data_path}",
+                    file=sys.stderr,
+                )
+
+            manifest_path = self._write_manifest(
+                job=job,
+                args=args,
+                summaries=summary_dicts,
+                failures=failure_dicts,
+            )
+            if failure_dicts:
+                error_message = f"{len(failure_dicts)} interval downloads failed."
+        except Exception as exc:
+            error_message = str(exc)
+
+        with self._lock:
+            job = self._jobs[job_id]
+            job.finished_at = utc_now_iso()
+            job.manifest_path = str(manifest_path) if manifest_path is not None else None
+            job.summaries = summary_dicts
+            job.failures = failure_dicts
+            job.error = error_message
+            job.status = "succeeded" if error_message is None and not failure_dicts else "failed"
+
+
+class PairAdminHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, server_address: tuple[str, int], config: DashboardConfig) -> None:
+        ensure_currency_icon_root(config)
+        super().__init__(server_address, PairAdminHandler)
+        self.config = config
+        self.download_jobs = DownloadJobRegistry(config=config)
+
+
+class PairAdminHandler(BaseHTTPRequestHandler):
+    server: PairAdminHTTPServer
+
+    def do_GET(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path == "/":
+            self.respond_html(cached_index_html())
+            return
+        if parsed.path in {"/icon.svg", "/favicon.svg", "/favicon.ico"}:
+            self.respond_svg(cached_icon_svg(), cache_control="public, max-age=3600")
+            return
+        if parsed.path.startswith("/currency-icons/"):
+            self.handle_currency_icon_file(parsed.path)
+            return
+        if parsed.path == "/api/source-pairs":
+            self.handle_source_pairs(parsed.query)
+            return
+        if parsed.path == "/api/local-trading-pairs":
+            self.handle_local_trading_pairs(parsed.query)
+            return
+        if parsed.path == "/api/local-pairs":
+            self.handle_local_pairs(parsed.query)
+            return
+        if parsed.path == "/api/strategies":
+            self.handle_strategies()
+            return
+        if parsed.path == "/api/backtest-records":
+            self.handle_backtest_records()
+            return
+        if parsed.path == "/api/system-settings":
+            self.handle_system_settings()
+            return
+        if parsed.path == "/api/currency-icons":
+            self.handle_currency_icons()
+            return
+        if parsed.path == "/api/download-jobs":
+            self.handle_download_jobs()
+            return
+        self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def do_POST(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/download-klines":
+            self.handle_download_klines()
+            return
+        if parsed.path == "/api/local-trading-pairs":
+            self.handle_add_local_trading_pair()
+            return
+        if parsed.path == "/api/currency-icons":
+            self.handle_upload_currency_icon()
+            return
+        self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def handle_source_pairs(self, query: str) -> None:
+        params = parse_qs(query)
+        source = params.get("source", ["binance"])[0].strip().lower() or "binance"
+        allowed_quote_assets = resolve_quote_asset_filter(
+            params.get("quote_asset"),
+            default_quote_asset=self.server.config.default_quote_asset,
+        )
+        try:
+            tradeable_only = parse_bool_query_value(
+                params.get("tradeable_only", [None])[0],
+                default=self.server.config.default_tradeable_only,
+            )
+            pairs = fetch_source_pairs(
+                source=source,
+                config=self.server.config,
+                allowed_quote_assets=allowed_quote_assets,
+                tradeable_only=tradeable_only,
+            )
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self.respond_json(
+                {
+                    "error": f"Failed to fetch source pairs for {source}: {exc}",
+                    "source": source,
+                },
+                status=HTTPStatus.BAD_GATEWAY,
+            )
+            return
+
+        self.respond_json(
+            {
+                "source": source,
+                "source_label": SOURCE_LABELS.get(source, source.upper()),
+                "count": len(pairs),
+                "filters": {
+                    "quote_asset": (
+                        sorted(allowed_quote_assets) if allowed_quote_assets is not None else None
+                    ),
+                    "tradeable_only": tradeable_only,
+                },
+                "pairs": [asdict(pair) for pair in pairs],
+                "fetched_at": utc_now_iso(),
+            }
+        )
+
+    def handle_local_trading_pairs(self, query: str) -> None:
+        params = parse_qs(query)
+        source = params.get("source", [None])[0]
+        allowed_quote_assets = resolve_quote_asset_filter(
+            params.get("quote_asset"),
+            default_quote_asset=self.server.config.default_quote_asset,
+        )
+        pairs = filter_local_trading_pairs(
+            load_local_trading_pairs(self.server.config),
+            source=source,
+            allowed_quote_assets=allowed_quote_assets,
+        )
+        self.respond_json(
+            {
+                "count": len(pairs),
+                "pairs": [asdict(pair) for pair in pairs],
+                "fetched_at": utc_now_iso(),
+            }
+        )
+
+    def handle_add_local_trading_pair(self) -> None:
+        try:
+            payload = self.read_json_body()
+            request = parse_manual_trading_pair_payload(payload)
+            pair = add_local_trading_pair(self.server.config, request)
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self.respond_json({"message": "Local trading pair added.", "pair": asdict(pair)}, status=HTTPStatus.CREATED)
+
+    def handle_local_pairs(self, query: str) -> None:
+        params = parse_qs(query)
+        source_raw = params.get("source", [None])[0]
+        source = source_raw.strip().lower() if source_raw else None
+        if source is not None and source not in SOURCE_LABELS:
+            self.respond_json({"error": f"Unsupported source: {source}"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        pairs, roots = discover_local_pairs_catalog(self.server.config, source=source)
+        payload: dict[str, Any] = {
+            "source": source,
+            "count": len(pairs),
+            "count_by_source": {
+                source_name: int(root_info["count"]) for source_name, root_info in roots.items()
+            },
+            "roots": roots,
+            "pairs": [asdict(pair) for pair in pairs],
+            "fetched_at": utc_now_iso(),
+        }
+        if source is not None:
+            root_info = roots[source]
+            payload["source_label"] = SOURCE_LABELS[source]
+            payload["root"] = root_info["path"]
+            payload["root_exists"] = root_info["exists"]
+        else:
+            payload["root"] = None
+            payload["root_exists"] = None
+        self.respond_json(payload)
+
+    def handle_strategies(self) -> None:
+        entries = discover_strategy_entries(self.server.config)
+        self.respond_json(
+            {
+                "count": len(entries),
+                "strategies": [asdict(entry) for entry in entries],
+                "fetched_at": utc_now_iso(),
+            }
+        )
+
+    def handle_backtest_records(self) -> None:
+        records = discover_backtest_records(self.server.config)
+        self.respond_json(
+            {
+                "count": len(records),
+                "records": [asdict(record) for record in records],
+                "fetched_at": utc_now_iso(),
+            }
+        )
+
+    def handle_system_settings(self) -> None:
+        latest_log_path = None
+        log_count = 0
+        if self.server.config.logs_root.exists():
+            log_files = sorted(self.server.config.logs_root.glob("*"), key=lambda path: path.stat().st_mtime)
+            log_count = len(log_files)
+            if log_files:
+                latest_log_path = str(log_files[-1])
+        icon_payload = list_currency_icons(self.server.config)
+
+        self.respond_json(
+            {
+                "workspace_root": str(self.server.config.workspace_root),
+                "raw_root": str(self.server.config.raw_root),
+                "normalized_root": str(self.server.config.normalized_root),
+                "strategies_root": str(self.server.config.strategies_root),
+                "backtests_root": str(self.server.config.backtests_root),
+                "logs_root": str(self.server.config.logs_root),
+                "quant_db_path": str(self.server.config.quant_db_path),
+                "experiments_db_path": str(self.server.config.experiments_db_path),
+                "local_trading_store_path": str(self.server.config.local_trading_store_path),
+                "currency_icon_root": str(self.server.config.currency_icon_root),
+                "currency_icon_catalog_path": icon_payload["catalog_path"],
+                "currency_icon_count": icon_payload["available_count"],
+                "currency_icon_missing_count": icon_payload["missing_count"],
+                "exchange_info_base_url": self.server.config.exchange_info_base_url,
+                "market_data_base_url": self.server.config.market_data_base_url,
+                "fallback_base_urls": list(self.server.config.fallback_base_urls),
+                "source_raw_roots": {
+                    source: str(resolve_source_raw_root(self.server.config, source))
+                    for source in SOURCE_ORDER
+                },
+                "default_quote_asset": self.server.config.default_quote_asset,
+                "default_tradeable_only": self.server.config.default_tradeable_only,
+                "python_version": platform.python_version(),
+                "latest_log_path": latest_log_path,
+                "log_count": log_count,
+                "local_trading_pair_count": len(load_local_trading_pairs(self.server.config)),
+                "download_job_count": len(self.server.download_jobs.list_jobs()),
+                "fetched_at": utc_now_iso(),
+            }
+        )
+
+    def handle_currency_icon_file(self, raw_path: str) -> None:
+        asset_segment = raw_path.removeprefix("/currency-icons/").strip("/")
+        if not asset_segment:
+            self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+            return
+        asset_name = Path(asset_segment).name
+        asset = asset_name.split(".", 1)[0].upper()
+        try:
+            icon_path = find_currency_icon_path(self.server.config, asset)
+        except ValueError:
+            self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+            return
+
+        if icon_path is None:
+            icon_path = currency_icon_default_path(self.server.config)
+            if not icon_path.is_file():
+                self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+                return
+        self.respond_file(icon_path, cache_control="public, max-age=3600")
+
+    def handle_currency_icons(self) -> None:
+        self.respond_json(list_currency_icons(self.server.config))
+
+    def handle_upload_currency_icon(self) -> None:
+        try:
+            payload = self.read_json_body()
+            entry = save_currency_icon(self.server.config, payload)
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self.respond_json({"message": "Currency icon saved.", "entry": entry}, status=HTTPStatus.CREATED)
+
+    def handle_download_jobs(self) -> None:
+        jobs = self.server.download_jobs.list_jobs()
+        self.respond_json(
+            {
+                "count": len(jobs),
+                "jobs": [asdict(job) for job in jobs],
+                "fetched_at": utc_now_iso(),
+            }
+        )
+
+    def handle_download_klines(self) -> None:
+        try:
+            payload = self.read_json_body()
+            request = parse_download_request_payload(payload)
+            job = self.server.download_jobs.create_job(request)
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        except DownloadJobConflictError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+            return
+        except Exception as exc:
+            self.respond_json(
+                {"error": f"Failed to create download job: {exc}"},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+        self.respond_json({"message": "Download job created.", "job": asdict(job)}, status=HTTPStatus.ACCEPTED)
+
+    def read_json_body(self) -> Any:
+        content_length_raw = self.headers.get("Content-Length")
+        if content_length_raw is None:
+            raise ValueError("Missing Content-Length header.")
+        try:
+            content_length = int(content_length_raw)
+        except ValueError as exc:
+            raise ValueError("Invalid Content-Length header.") from exc
+        body = self.rfile.read(content_length)
+        if not body:
+            raise ValueError("Request body is empty.")
+        try:
+            return json.loads(body.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSON body: {exc}") from exc
+
+    def respond_html(self, payload: bytes, status: HTTPStatus = HTTPStatus.OK) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def respond_svg(
+        self,
+        payload: bytes,
+        status: HTTPStatus = HTTPStatus.OK,
+        *,
+        cache_control: str = "public, max-age=3600",
+    ) -> None:
+        self.respond_bytes(
+            payload,
+            content_type="image/svg+xml",
+            status=status,
+            cache_control=cache_control,
+        )
+
+    def respond_bytes(
+        self,
+        payload: bytes,
+        *,
+        content_type: str,
+        status: HTTPStatus = HTTPStatus.OK,
+        cache_control: str = "public, max-age=3600",
+    ) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", cache_control)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def respond_file(
+        self,
+        path: Path,
+        *,
+        status: HTTPStatus = HTTPStatus.OK,
+        cache_control: str = "public, max-age=3600",
+    ) -> None:
+        content_type = ALLOWED_CURRENCY_ICON_EXTENSIONS.get(path.suffix.lower()) or mimetypes.guess_type(
+            str(path)
+        )[0]
+        self.respond_bytes(
+            path.read_bytes(),
+            content_type=content_type or "application/octet-stream",
+            status=status,
+            cache_control=cache_control,
+        )
+
+    def respond_json(self, payload: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+def build_config(args: argparse.Namespace) -> DashboardConfig:
+    workspace_root = Path.cwd().resolve()
+    return DashboardConfig(
+        workspace_root=workspace_root,
+        raw_root=Path(args.raw_root).expanduser().resolve(),
+        normalized_root=Path(args.normalized_root).expanduser().resolve(),
+        strategies_root=Path(args.strategies_root).expanduser().resolve(),
+        backtests_root=Path(args.backtests_root).expanduser().resolve(),
+        logs_root=Path(args.logs_root).expanduser().resolve(),
+        quant_db_path=DEFAULT_QUANT_DB_PATH.expanduser().resolve(),
+        experiments_db_path=DEFAULT_EXPERIMENTS_DB_PATH.expanduser().resolve(),
+        local_trading_store_path=Path(args.local_trading_store).expanduser().resolve(),
+        currency_icon_root=Path(args.currency_icon_root).expanduser().resolve(),
+        exchange_info_base_url=args.exchange_info_base_url,
+        market_data_base_url=args.market_data_base_url,
+        fallback_base_urls=tuple(args.fallback_base_urls or []),
+        timeout_seconds=args.timeout_seconds,
+        max_retries=args.max_retries,
+        retry_delay_seconds=args.retry_delay_seconds,
+        retry_jitter_seconds=args.retry_jitter_seconds,
+        limit=args.limit,
+        sleep_seconds=args.sleep_seconds,
+        default_quote_asset=args.default_quote_asset.strip().upper(),
+        default_tradeable_only=args.default_tradeable_only,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    config = build_config(args)
+    server = PairAdminHTTPServer((args.host, args.port), config=config)
+    host, port = server.server_address
+    print(f"[admin] serving http://{host}:{port}", file=sys.stderr)
+    print(f"[admin] local raw root {config.raw_root}", file=sys.stderr)
+    print(f"[admin] default quote asset {config.default_quote_asset}", file=sys.stderr)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("[admin] shutdown requested", file=sys.stderr)
+    finally:
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

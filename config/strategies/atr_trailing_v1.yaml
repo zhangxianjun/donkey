@@ -1,0 +1,37 @@
+strategy_name: atr_trailing
+strategy_version: v1
+description: "ATR breakout strategy with trailing stop and hot-reloadable module."
+
+module:
+  path: src/strategies/builtin/atr.py
+  factory_name: build_strategy
+  reload_on_change: true
+
+universe:
+  exchange: binance
+  market_type: spot
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+  interval: 1d
+
+data:
+  data_version: v1
+  required_fields:
+    - ts
+    - symbol
+    - interval
+    - open
+    - high
+    - low
+    - close
+    - volume
+
+signal:
+  warmup_bars: 20
+  atr_window: 14
+  breakout_window: 20
+  atr_multiplier: 3.0
+
+artifacts:
+  signal_path: data/signals/atr_trailing_v1/{symbol}_1d_signal.parquet

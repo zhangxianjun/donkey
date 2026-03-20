@@ -1,0 +1,2322 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Donkey Admin | 管理后台</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0e11;
+        --panel: rgba(17, 22, 29, 0.96);
+        --panel-soft: rgba(30, 35, 41, 0.94);
+        --ink: #eaecef;
+        --muted: #848e9c;
+        --line: rgba(71, 77, 87, 0.56);
+        --accent: #f0b90b;
+        --accent-strong: #f8d33a;
+        --accent-soft: rgba(240, 185, 11, 0.12);
+        --accent-border: rgba(240, 185, 11, 0.28);
+        --warn: #f6465d;
+        --warn-soft: rgba(246, 70, 93, 0.12);
+        --info: #f3ca57;
+        --info-soft: rgba(240, 185, 11, 0.12);
+        --good: #0ecb81;
+        --good-soft: rgba(14, 203, 129, 0.12);
+        --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: var(--bg);
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Avenir Next", "PingFang SC", "Noto Sans SC", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top right, rgba(240, 185, 11, 0.1), transparent 24%),
+          radial-gradient(circle at left top, rgba(43, 49, 57, 0.4), transparent 30%),
+          linear-gradient(180deg, #0b0e11 0%, #12161c 100%);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+        background-size: 36px 36px;
+        mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.56), transparent 92%);
+      }
+
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 28%);
+      }
+
+      .app-shell {
+        width: min(1680px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 24px 0 32px;
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr);
+        gap: 18px;
+      }
+
+      .sidebar,
+      .hero,
+      .metric-card,
+      .page,
+      .card {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 20px;
+        align-self: start;
+        border-radius: 24px;
+        padding: 18px;
+        background: linear-gradient(180deg, rgba(17, 22, 29, 0.98), rgba(11, 14, 17, 0.98));
+      }
+
+      .brand {
+        padding: 8px 10px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand-header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .brand-icon {
+        width: 56px;
+        height: 56px;
+        flex: 0 0 auto;
+        display: block;
+        border-radius: 16px;
+        background: #101418;
+        box-shadow: 0 0 0 1px rgba(240, 185, 11, 0.12);
+      }
+
+      .brand-text {
+        min-width: 0;
+      }
+
+      .brand-kicker {
+        margin: 0;
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .brand-title {
+        margin: 8px 0 0;
+        font-size: 26px;
+        letter-spacing: -0.04em;
+      }
+
+      .brand-copy {
+        margin: 12px 0 0;
+        font-size: 13px;
+        line-height: 1.7;
+        color: #aeb4bd;
+      }
+
+      .nav-group {
+        margin-top: 18px;
+      }
+
+      .nav-group-title {
+        margin: 0 0 10px;
+        padding: 0 14px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: #6f7885;
+      }
+
+      .nav-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .nav-button {
+        width: 100%;
+        border: 1px solid transparent;
+        border-radius: 16px;
+        padding: 13px 14px;
+        text-align: left;
+        font: inherit;
+        cursor: pointer;
+        color: #cdd3db;
+        background: rgba(255, 255, 255, 0.02);
+        box-shadow: none;
+        transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+      }
+
+      .nav-button:hover {
+        transform: none;
+        box-shadow: none;
+        color: var(--ink);
+        background: rgba(240, 185, 11, 0.06);
+        border-color: rgba(240, 185, 11, 0.18);
+      }
+
+      .nav-button.active {
+        color: var(--ink);
+        border-color: var(--accent-border);
+        background: linear-gradient(90deg, rgba(240, 185, 11, 0.14), rgba(240, 185, 11, 0.03));
+        box-shadow: inset 3px 0 0 var(--accent);
+      }
+
+      .nav-label {
+        display: block;
+        font-weight: 700;
+      }
+
+      .main {
+        display: grid;
+        gap: 16px;
+      }
+
+      .hero {
+        position: relative;
+        overflow: hidden;
+        border-radius: 24px;
+        padding: 24px;
+        background: linear-gradient(135deg, rgba(30, 35, 41, 0.98), rgba(17, 22, 29, 0.98));
+      }
+
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: auto 0 0 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(240, 185, 11, 0.45), transparent);
+      }
+
+      .hero::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(circle at top right, rgba(240, 185, 11, 0.12), transparent 24%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 45%);
+      }
+
+      .hero-grid {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 340px;
+        gap: 20px;
+        align-items: stretch;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        font-size: 12px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 10ch;
+        font-size: clamp(34px, 4vw, 48px);
+        line-height: 0.94;
+        letter-spacing: -0.04em;
+      }
+
+      .hero-copy {
+        max-width: 760px;
+        margin: 14px 0 0;
+        font-size: 15px;
+        line-height: 1.75;
+        color: #b5bcc6;
+      }
+
+      .hero-board {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+        padding: 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(240, 185, 11, 0.18);
+        background: linear-gradient(180deg, rgba(16, 20, 25, 0.92), rgba(24, 29, 36, 0.92));
+      }
+
+      .hero-board-kicker {
+        margin: 0;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: var(--muted);
+      }
+
+      .hero-board-value {
+        margin: 0;
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+
+      .hero-board-copy {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.7;
+        color: #aeb5be;
+      }
+
+      .hero-tags {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .hero-tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 5px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(240, 185, 11, 0.18);
+        background: rgba(240, 185, 11, 0.08);
+        font-size: 12px;
+        font-weight: 700;
+        color: #f3ca57;
+      }
+
+      .segment-bar {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .segment-button {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 10px 14px;
+        font: inherit;
+        font-weight: 700;
+        color: #cdd3db;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .segment-button.active {
+        color: #181a20;
+        background: var(--accent);
+        border-color: var(--accent);
+        box-shadow: none;
+      }
+
+      button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--accent);
+        border-radius: 14px;
+        padding: 12px 18px;
+        font: inherit;
+        font-weight: 700;
+        color: #181a20;
+        background: linear-gradient(180deg, var(--accent-strong), var(--accent));
+        box-shadow: none;
+        cursor: pointer;
+        transition: filter 0.18s ease, background 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+      }
+
+      button:hover {
+        transform: none;
+        box-shadow: none;
+        filter: brightness(1.03);
+      }
+
+      button:disabled {
+        opacity: 0.45;
+        cursor: wait;
+        transform: none;
+        box-shadow: none;
+        filter: none;
+      }
+
+      .button-secondary {
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.02);
+        border-color: var(--line);
+      }
+
+      .button-small {
+        padding: 8px 12px;
+        font-size: 13px;
+        box-shadow: none;
+      }
+
+      .status-line {
+        display: inline-flex;
+        align-items: center;
+        min-height: 40px;
+        padding: 0 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        font-size: 13px;
+        line-height: 1.5;
+        color: #adb4be;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .status-line.error {
+        color: #ff7a8c;
+        border-color: rgba(246, 70, 93, 0.3);
+        background: rgba(246, 70, 93, 0.12);
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .metric-card {
+        position: relative;
+        overflow: hidden;
+        padding: 18px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(30, 35, 41, 0.94), rgba(21, 25, 31, 0.94));
+      }
+
+      .metric-card::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 2px;
+        background: linear-gradient(90deg, rgba(240, 185, 11, 0.7), rgba(240, 185, 11, 0));
+      }
+
+      .metric-label {
+        margin: 0 0 8px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: var(--muted);
+      }
+
+      .metric-value {
+        margin: 0;
+        font-size: clamp(24px, 3vw, 34px);
+        font-weight: 800;
+        letter-spacing: -0.04em;
+      }
+
+      .metric-note {
+        margin-top: 8px;
+        font-size: 12px;
+        line-height: 1.6;
+        color: #98a1ad;
+      }
+
+      .pages {
+        display: grid;
+      }
+
+      .page {
+        display: none;
+        border-radius: 22px;
+        padding: 20px;
+        background: linear-gradient(180deg, rgba(20, 24, 30, 0.96), rgba(13, 17, 22, 0.96));
+      }
+
+      .page.active {
+        display: grid;
+        gap: 16px;
+      }
+
+      .page-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: end;
+        padding-bottom: 12px;
+        border-bottom: 1px solid rgba(71, 77, 87, 0.38);
+      }
+
+      .page-kicker {
+        margin: 0 0 8px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: var(--accent);
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 24px;
+        letter-spacing: -0.03em;
+      }
+
+      .page-subtitle {
+        margin: 8px 0 0;
+        font-size: 13px;
+        line-height: 1.7;
+        color: #a7b0bc;
+      }
+
+      .page-grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .page-grid.two-col {
+        grid-template-columns: 1.15fr 0.85fr;
+      }
+
+      .card {
+        border-radius: 18px;
+        padding: 18px;
+        background: linear-gradient(180deg, rgba(30, 35, 41, 0.94), rgba(21, 25, 31, 0.94));
+      }
+
+      h3 {
+        margin: 0;
+        font-size: 18px;
+        letter-spacing: -0.02em;
+      }
+
+      .section-copy {
+        margin: 8px 0 0;
+        font-size: 13px;
+        line-height: 1.7;
+        color: #9ea7b2;
+      }
+
+      .toolbar {
+        display: grid;
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .toolbar-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .field {
+        display: grid;
+        gap: 8px;
+      }
+
+      .field-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: var(--muted);
+      }
+
+      input[type="checkbox"] {
+        accent-color: var(--accent);
+      }
+
+      input[type="search"],
+      input[type="text"],
+      input[type="date"],
+      input[type="file"],
+      select {
+        width: 100%;
+        border: 1px solid #2b3139;
+        border-radius: 12px;
+        padding: 13px 14px;
+        font: inherit;
+        color: var(--ink);
+        background: #181a20;
+        outline: none;
+        transition: border-color 0.18s ease, box-shadow 0.18s ease;
+      }
+
+      input[type="search"]::placeholder,
+      input[type="text"]::placeholder {
+        color: #707a86;
+      }
+
+      input[type="search"]:focus,
+      input[type="text"]:focus,
+      input[type="date"]:focus,
+      input[type="file"]:focus,
+      select:focus {
+        border-color: rgba(240, 185, 11, 0.58);
+        box-shadow: 0 0 0 3px rgba(240, 185, 11, 0.12);
+      }
+
+      input[type="file"] {
+        padding: 10px 12px;
+      }
+
+      input[type="file"]::file-selector-button {
+        margin-right: 12px;
+        border: 1px solid rgba(240, 185, 11, 0.28);
+        border-radius: 10px;
+        padding: 8px 12px;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        color: #181a20;
+        background: linear-gradient(180deg, var(--accent-strong), var(--accent));
+      }
+
+      .switch {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.02);
+        color: #d3d7dd;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .hint,
+      .subline {
+        font-size: 13px;
+        line-height: 1.7;
+        color: #9ea7b2;
+      }
+
+      .table-shell {
+        margin-top: 16px;
+        overflow: hidden;
+        border: 1px solid rgba(71, 77, 87, 0.42);
+        border-radius: 16px;
+        background: #161a1e;
+      }
+
+      .table-scroll {
+        max-height: 620px;
+        overflow: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 13px 16px;
+        text-align: left;
+        border-bottom: 1px solid rgba(71, 77, 87, 0.32);
+        vertical-align: top;
+      }
+
+      th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #1e2329;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: var(--muted);
+      }
+
+      td {
+        color: #d8dde5;
+      }
+
+      tbody tr:hover {
+        background: rgba(240, 185, 11, 0.05);
+      }
+
+      .symbol-cell {
+        display: grid;
+        gap: 6px;
+      }
+
+      .asset-pair {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .asset-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        padding: 4px 10px 4px 6px;
+        border: 1px solid rgba(71, 77, 87, 0.42);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.02);
+        color: #dce1e7;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .asset-icon {
+        width: 22px;
+        height: 22px;
+        display: block;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.06);
+        object-fit: cover;
+        flex: 0 0 auto;
+      }
+
+      .asset-arrow {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .symbol-main {
+        font-family: "SFMono-Regular", "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .pill-row {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .pill.good,
+      .pill.job-succeeded,
+      .pill.status-trading {
+        color: var(--good);
+        background: var(--good-soft);
+        border-color: rgba(14, 203, 129, 0.18);
+      }
+
+      .pill.info,
+      .pill.job-running,
+      .pill.job-queued,
+      .pill.status-live,
+      .pill.status-ready {
+        color: var(--info);
+        background: var(--info-soft);
+        border-color: rgba(240, 185, 11, 0.18);
+      }
+
+      .pill.warn,
+      .pill.job-failed,
+      .pill.status-pending,
+      .pill.status-other {
+        color: var(--warn);
+        background: var(--warn-soft);
+        border-color: rgba(246, 70, 93, 0.18);
+      }
+
+      .job-list,
+      .manual-list {
+        display: grid;
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .job-card,
+      .manual-card,
+      .settings-card {
+        border: 1px solid rgba(71, 77, 87, 0.42);
+        border-radius: 16px;
+        background: #161a1e;
+        padding: 16px;
+      }
+
+      .job-head,
+      .manual-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: start;
+      }
+
+      .settings-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .settings-value {
+        margin-top: 6px;
+        font-family: "SFMono-Regular", "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 12px;
+        line-height: 1.7;
+        color: #c8ced7;
+        word-break: break-all;
+      }
+
+      .currency-icon-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .currency-icon-card {
+        display: grid;
+        gap: 10px;
+        border: 1px solid rgba(71, 77, 87, 0.42);
+        border-radius: 16px;
+        padding: 14px;
+        background: #161a1e;
+      }
+
+      .currency-icon-card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .currency-icon-preview {
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+        display: block;
+        background: rgba(255, 255, 255, 0.04);
+        object-fit: cover;
+      }
+
+      .currency-icon-code {
+        font-family: "SFMono-Regular", "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .currency-icon-meta {
+        font-size: 12px;
+        line-height: 1.6;
+        color: #9ea7b2;
+        word-break: break-all;
+      }
+
+      .empty {
+        padding: 28px 16px;
+        text-align: center;
+        color: var(--muted);
+      }
+
+      @media (max-width: 1360px) {
+        .metrics {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .hero-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .currency-icon-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 1280px) {
+        .app-shell {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: static;
+        }
+      }
+
+      @media (max-width: 1100px) {
+        .page-grid.two-col,
+        .form-grid,
+        .settings-grid,
+        .currency-icon-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .app-shell {
+          width: min(100vw - 18px, 100%);
+          padding-top: 18px;
+        }
+
+        .sidebar,
+        .hero,
+        .page {
+          padding: 16px;
+        }
+
+        .metric-card,
+        .card {
+          padding: 16px;
+        }
+
+        .metrics {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .brand-header,
+        .page-head {
+          align-items: start;
+        }
+
+        th,
+        td {
+          padding: 12px;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .metrics {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-header">
+            <img class="brand-icon" src="/icon.svg" alt="Donkey 项目图标" />
+            <div class="brand-text">
+              <p class="brand-kicker">Donkey Admin</p>
+              <p class="brand-title">管理后台</p>
+            </div>
+          </div>
+          <p class="brand-copy">面向研究与运营的深色控制台，统一管理多源行情、下载任务、策略配置与回测产物。</p>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-group-title">总览</p>
+          <div class="nav-list">
+            <button class="nav-button active" type="button" data-page="home">
+              <span class="nav-label">首页</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-group-title">数据管理</p>
+          <div class="nav-list">
+            <button class="nav-button" type="button" data-page="data-sources">
+              <span class="nav-label">数据源</span>
+            </button>
+            <button class="nav-button" type="button" data-page="download-config">
+              <span class="nav-label">下载配置</span>
+            </button>
+            <button class="nav-button" type="button" data-page="local-data">
+              <span class="nav-label">本地数据</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-group-title">回测管理</p>
+          <div class="nav-list">
+            <button class="nav-button" type="button" data-page="strategy-showcase">
+              <span class="nav-label">策略展示</span>
+            </button>
+            <button class="nav-button" type="button" data-page="backtest-records">
+              <span class="nav-label">回测记录</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-group-title">系统设置</p>
+          <div class="nav-list">
+            <button class="nav-button" type="button" data-page="system-settings">
+              <span class="nav-label">系统设置</span>
+            </button>
+            <button class="nav-button" type="button" data-page="currency-icons">
+              <span class="nav-label">币种图标</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="pages">
+          <section class="page active" data-page-group="home">
+            <section class="hero">
+              <div class="hero-grid">
+                <div>
+                  <p class="eyebrow">Donkey Admin</p>
+                  <h1>Research Control Center</h1>
+                  <p class="hero-copy">
+                    参考 Binance 当前深色终端风格，将数据源、同步任务、策略配置与回测产物收敛到一套更偏商务和运营控制台的界面里。
+                  </p>
+                </div>
+                <aside class="hero-board">
+                  <p class="hero-board-kicker">Workspace Focus</p>
+                  <p class="hero-board-value">Spot Research Console</p>
+                  <p class="hero-board-copy">按交易所拆分视图，默认围绕 `USDT` Universe、可交易过滤和下载任务追踪展开。</p>
+                  <div class="hero-tags">
+                    <span class="hero-tag">多源行情</span>
+                    <span class="hero-tag">任务同步</span>
+                    <span class="hero-tag">回测产物</span>
+                  </div>
+                </aside>
+              </div>
+            </section>
+
+            <section class="metrics">
+              <article class="metric-card">
+                <p class="metric-label">接入数据源</p>
+                <p class="metric-value" id="remoteCount">0</p>
+                <p class="metric-note">当前后台已接入的数据源数量</p>
+              </article>
+              <article class="metric-card">
+                <p class="metric-label">本地交易</p>
+                <p class="metric-value" id="manualCount">0</p>
+                <p class="metric-note">手动加入本地交易清单的交易对</p>
+              </article>
+              <article class="metric-card">
+                <p class="metric-label">本地数据</p>
+                <p class="metric-value" id="localDataCount">0</p>
+                <p class="metric-note">已下载到本地的数据交易对</p>
+              </article>
+              <article class="metric-card">
+                <p class="metric-label">下载任务</p>
+                <p class="metric-value" id="jobCount">0</p>
+                <p class="metric-note">后台 K 线下载任务总数</p>
+              </article>
+              <article class="metric-card">
+                <p class="metric-label">策略</p>
+                <p class="metric-value" id="strategyCount">0</p>
+                <p class="metric-note">已发现的策略配置</p>
+              </article>
+              <article class="metric-card">
+                <p class="metric-label">回测记录</p>
+                <p class="metric-value" id="backtestCount">0</p>
+                <p class="metric-note">已识别的回测产物记录</p>
+              </article>
+            </section>
+
+            <div class="page-grid two-col">
+              <article class="card">
+                <h3>数据源概览</h3>
+                <p class="section-copy">四个数据源分开维护，不做合并展示。</p>
+                <div class="manual-list" id="homeSourceSummary"></div>
+              </article>
+
+              <article class="card">
+                <h3>系统概览</h3>
+                <p class="section-copy">默认过滤、当前视图和运行状态会汇总显示在这里。</p>
+                <div class="settings-grid" id="homeQuickFacts"></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="page" data-page-group="data-sources">
+            <div class="page-head">
+              <div>
+                <p class="page-kicker" id="sourceKicker">1.1 数据源</p>
+                <h2 id="sourceTitle">币安数据源</h2>
+                <p class="page-subtitle" id="sourceMeta">统一页面内切换不同数据源，查看远端交易对和本地状态。</p>
+              </div>
+            </div>
+
+            <article class="card">
+              <h3>数据源切换</h3>
+              <p class="section-copy">四个数据源统一放在这个页面中，通过下方按钮切换。</p>
+              <div class="toolbar">
+                <div class="segment-bar" id="sourceSwitchBar">
+                  <button class="segment-button source-switch-button active" type="button" data-source-switch="binance">币安</button>
+                  <button class="segment-button source-switch-button" type="button" data-source-switch="okx">欧意</button>
+                  <button class="segment-button source-switch-button" type="button" data-source-switch="bybit">Bybit</button>
+                  <button class="segment-button source-switch-button" type="button" data-source-switch="hl">HL</button>
+                </div>
+                <div class="hint">每个数据源的远端交易对、本地交易状态、本地数据状态都分开显示。</div>
+              </div>
+            </article>
+
+            <article class="card">
+              <h3 id="sourcePanelTitle">币安交易对</h3>
+              <p class="section-copy" id="sourcePanelCopy">当前来源的数据不与其他来源合并。下载参数请到“下载配置”页面统一维护。</p>
+              <div class="toolbar">
+                <div class="toolbar-row">
+                  <input id="sourceSearch" type="search" placeholder="搜索 symbol / base / quote" />
+                </div>
+              </div>
+              <div class="table-shell">
+                <div class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>交易对</th>
+                        <th>状态</th>
+                        <th>资产</th>
+                        <th>本地交易</th>
+                        <th>本地数据</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="sourceRows"></tbody>
+                  </table>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section class="page" data-page-group="download-config">
+            <div class="page-head">
+              <div>
+                <p class="page-kicker">1.2 下载配置</p>
+                <h2>下载配置</h2>
+                <p class="page-subtitle">统一维护数据源页面和本地数据页面共用的筛选与下载参数。</p>
+              </div>
+            </div>
+
+            <article class="card">
+              <h3>公共参数</h3>
+              <p class="section-copy">报价资产和可交易过滤影响数据源列表；周期和日期影响下载任务。</p>
+              <div class="form-grid">
+                <label class="field">
+                  <span class="field-label">周期</span>
+                  <input id="intervalInput" type="text" value="5m,1h,4h,8h,1d,1w" />
+                </label>
+                <label class="field">
+                  <span class="field-label">开始日期</span>
+                  <input id="startDateInput" type="date" />
+                </label>
+                <label class="field">
+                  <span class="field-label">结束日期</span>
+                  <input id="endDateInput" type="date" />
+                </label>
+                <label class="field">
+                  <span class="field-label">报价资产</span>
+                  <input id="quoteAssetInput" type="text" value="USDT" />
+                </label>
+              </div>
+              <div class="toolbar">
+                <div class="toolbar-row">
+                  <label class="switch">
+                    <input id="tradeableOnly" type="checkbox" checked />
+                    <span>只看可交易</span>
+                  </label>
+                  <label class="switch">
+                    <input id="startFromListing" type="checkbox" checked />
+                    <span>从上市时间开始</span>
+                  </label>
+                </div>
+                <div class="hint">修改后会直接作用到当前选中的数据源页面和本地数据页；页面本身不再提供单独刷新按钮。</div>
+              </div>
+            </article>
+          </section>
+
+          <section class="page" data-page-group="local-data">
+            <div class="page-head">
+              <div>
+                <p class="page-kicker">1.3 本地数据</p>
+                <h2>本地数据</h2>
+                <p class="page-subtitle" id="localMeta">已下载 raw 数据按数据源区分展示，任务状态放在页面底部。</p>
+              </div>
+            </div>
+
+            <article class="card">
+              <h3>本地数据列表</h3>
+              <p class="section-copy">查看各数据源已经下载到本地的交易对数据。</p>
+              <div class="toolbar">
+                <div class="toolbar-row">
+                  <select id="localSourceFilter"></select>
+                  <input id="localSearch" type="search" placeholder="搜索 symbol / interval" />
+                </div>
+              </div>
+              <div class="table-shell">
+                <div class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>来源</th>
+                        <th>交易对</th>
+                        <th>周期</th>
+                        <th>文件</th>
+                        <th>最近更新</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="localRows"></tbody>
+                  </table>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <h3>任务状态</h3>
+              <p class="section-copy" id="jobsMeta">本地数据页可以直接下载数据或同步最新数据。</p>
+              <div class="job-list" id="localJobsMirror"></div>
+            </article>
+          </section>
+
+          <section class="page" data-page-group="strategy-showcase">
+            <div class="page-head">
+              <div>
+                <p class="page-kicker">2.1 策略展示</p>
+                <h2>策略展示</h2>
+                <p class="page-subtitle">展示策略配置、Universe 和回测参数摘要。</p>
+              </div>
+            </div>
+            <article class="card">
+              <div class="table-shell">
+                <div class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>策略</th>
+                        <th>Universe</th>
+                        <th>回测区间</th>
+                        <th>产物</th>
+                      </tr>
+                    </thead>
+                    <tbody id="strategyRows"></tbody>
+                  </table>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section class="page" data-page-group="backtest-records">
+            <div class="page-head">
+              <div>
+                <p class="page-kicker">2.2 回测记录</p>
+                <h2>回测记录</h2>
+                <p class="page-subtitle">读取回测 summary / trades / equity 产物存在情况。</p>
+              </div>
+            </div>
+            <article class="card">
+              <div class="table-shell">
+                <div class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>策略</th>
+                        <th>状态</th>
+                        <th>产物</th>
+                        <th>更新时间</th>
+                      </tr>
+                    </thead>
+                    <tbody id="backtestRows"></tbody>
+                  </table>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section class="page" data-page-group="system-settings">
+            <div class="page-head">
+              <div>
+                <p class="page-kicker">3. 系统设置</p>
+                <h2>系统设置</h2>
+                <p class="page-subtitle">展示后台当前启用的接口配置、运行参数和环境信息。</p>
+              </div>
+            </div>
+            <article class="card">
+              <h3>运行配置</h3>
+              <p class="section-copy">后台接口、图标覆盖情况、日志数量和运行环境状态。</p>
+              <div class="settings-grid" id="settingsGrid"></div>
+            </article>
+          </section>
+
+          <section class="page" data-page-group="currency-icons">
+            <div class="page-head">
+              <div>
+                <p class="page-kicker">3.1 币种图标</p>
+                <h2>币种图标</h2>
+                <p class="page-subtitle">统一维护项目内的币种图标，支持搜索、查看和后续手动上传覆盖。</p>
+              </div>
+            </div>
+            <article class="card">
+              <h3>图标管理</h3>
+              <p class="section-copy" id="currencyIconSummary">当前币种图标尚未加载。</p>
+              <div class="form-grid">
+                <label class="field">
+                  <span class="field-label">币种代码</span>
+                  <input id="currencyIconAssetInput" type="text" placeholder="例如 BTC / USDT / 1INCH" />
+                </label>
+                <label class="field">
+                  <span class="field-label">图标文件</span>
+                  <input
+                    id="currencyIconFileInput"
+                    type="file"
+                    accept=".svg,.png,.webp,.jpg,.jpeg,image/svg+xml,image/png,image/webp,image/jpeg"
+                  />
+                </label>
+              </div>
+              <div class="toolbar">
+                <div class="toolbar-row">
+                  <button id="uploadCurrencyIconButton" type="button">上传 / 覆盖图标</button>
+                  <span class="hint">支持 SVG / PNG / WEBP / JPG，按币种代码覆盖同名图标。</span>
+                </div>
+                <div class="toolbar-row">
+                  <label class="field" style="width: 100%">
+                    <span class="field-label">搜索图标</span>
+                    <input id="currencyIconSearch" type="search" placeholder="搜索 asset code" />
+                  </label>
+                </div>
+              </div>
+              <div class="currency-icon-grid" id="currencyIconGrid"></div>
+            </article>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const SOURCE_LABELS = {
+        binance: "币安",
+        okx: "欧意",
+        bybit: "Bybit",
+        hl: "HL",
+      };
+
+      const SOURCE_ORDER = ["binance", "okx", "bybit", "hl"];
+
+      const state = {
+        selectedPage: "home",
+        selectedSource: "binance",
+        selectedLocalSource: "all",
+        remotePairs: [],
+        remoteMeta: null,
+        remoteError: "",
+        remoteCountsBySource: {},
+        remoteErrorsBySource: {},
+        manualPairs: [],
+        localPairs: [],
+        localMeta: null,
+        strategies: [],
+        backtests: [],
+        settings: null,
+        currencyIcons: [],
+        currencyIconMeta: null,
+        jobs: [],
+        jobsMeta: null,
+        jobSignature: "",
+      };
+
+      const els = {
+        navButtons: Array.from(document.querySelectorAll(".nav-button")),
+        pagePanels: Array.from(document.querySelectorAll(".page")),
+        sourceSwitchButtons: Array.from(document.querySelectorAll(".source-switch-button")),
+        statusLine: document.getElementById("statusLine"),
+        intervalInput: document.getElementById("intervalInput"),
+        startDateInput: document.getElementById("startDateInput"),
+        endDateInput: document.getElementById("endDateInput"),
+        quoteAssetInput: document.getElementById("quoteAssetInput"),
+        tradeableOnly: document.getElementById("tradeableOnly"),
+        startFromListing: document.getElementById("startFromListing"),
+        sourceKicker: document.getElementById("sourceKicker"),
+        sourceTitle: document.getElementById("sourceTitle"),
+        sourceMeta: document.getElementById("sourceMeta"),
+        sourcePanelTitle: document.getElementById("sourcePanelTitle"),
+        sourcePanelCopy: document.getElementById("sourcePanelCopy"),
+        sourceSearch: document.getElementById("sourceSearch"),
+        sourceRows: document.getElementById("sourceRows"),
+        manualList: document.getElementById("manualList"),
+        localMeta: document.getElementById("localMeta"),
+        localSourceFilter: document.getElementById("localSourceFilter"),
+        localSearch: document.getElementById("localSearch"),
+        localRows: document.getElementById("localRows"),
+        strategyRows: document.getElementById("strategyRows"),
+        backtestRows: document.getElementById("backtestRows"),
+        settingsGrid: document.getElementById("settingsGrid"),
+        currencyIconSummary: document.getElementById("currencyIconSummary"),
+        currencyIconGrid: document.getElementById("currencyIconGrid"),
+        currencyIconSearch: document.getElementById("currencyIconSearch"),
+        currencyIconAssetInput: document.getElementById("currencyIconAssetInput"),
+        currencyIconFileInput: document.getElementById("currencyIconFileInput"),
+        uploadCurrencyIconButton: document.getElementById("uploadCurrencyIconButton"),
+        jobsMeta: document.getElementById("jobsMeta"),
+        localJobsMirror: document.getElementById("localJobsMirror"),
+        remoteCount: document.getElementById("remoteCount"),
+        manualCount: document.getElementById("manualCount"),
+        localDataCount: document.getElementById("localDataCount"),
+        jobCount: document.getElementById("jobCount"),
+        strategyCount: document.getElementById("strategyCount"),
+        backtestCount: document.getElementById("backtestCount"),
+        homeSourceSummary: document.getElementById("homeSourceSummary"),
+        homeQuickFacts: document.getElementById("homeQuickFacts"),
+      };
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function currencyIconUrl(asset) {
+        const normalized = String(asset || "DEFAULT").trim().toUpperCase() || "DEFAULT";
+        return `/currency-icons/${encodeURIComponent(normalized)}`;
+      }
+
+      function renderAssetChip(asset) {
+        const normalized = String(asset || "DEFAULT").trim().toUpperCase() || "DEFAULT";
+        return `
+          <span class="asset-chip">
+            <img class="asset-icon" src="${currencyIconUrl(normalized)}" alt="${escapeHtml(normalized)} icon" loading="lazy" />
+            <span>${escapeHtml(normalized)}</span>
+          </span>
+        `;
+      }
+
+      function renderAssetPair(baseAsset, quoteAsset) {
+        return `
+          <div class="asset-pair">
+            ${renderAssetChip(baseAsset)}
+            <span class="asset-arrow">→</span>
+            ${renderAssetChip(quoteAsset)}
+          </div>
+        `;
+      }
+
+      function toLocalDateValue(date) {
+        const offset = date.getTimezoneOffset() * 60000;
+        return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+      }
+
+      function formatTime(value) {
+        if (!value) {
+          return "未记录";
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return value;
+        }
+        return date.toLocaleString("zh-CN", { hour12: false });
+      }
+
+      function setStatus(text, isError = false) {
+        if (!els.statusLine) {
+          return;
+        }
+        els.statusLine.textContent = text;
+        els.statusLine.classList.toggle("error", isError);
+      }
+
+      async function requestJson(url, options = {}) {
+        const response = await fetch(url, {
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            ...(options.headers || {}),
+          },
+          ...options,
+        });
+        const text = await response.text();
+        let payload = {};
+        if (text) {
+          try {
+            payload = JSON.parse(text);
+          } catch (error) {
+            throw new Error(text);
+          }
+        }
+        if (!response.ok) {
+          throw new Error(payload.error || `请求失败: ${response.status}`);
+        }
+        return payload;
+      }
+
+      function currentSource() {
+        return state.selectedSource;
+      }
+
+      function currentLocalFilterSource() {
+        return state.selectedLocalSource || "all";
+      }
+
+      function getQuoteAssetValue() {
+        const value = els.quoteAssetInput.value.trim().toUpperCase();
+        return value || "USDT";
+      }
+
+      function manualKey(pair) {
+        return `${pair.source}:${pair.symbol}`;
+      }
+
+      function activeJobs() {
+        return state.jobs.filter((job) => job.status === "queued" || job.status === "running");
+      }
+
+      function computeJobSignature(jobs) {
+        return jobs
+          .map((job) => `${job.job_id}:${job.status}:${job.finished_at || ""}:${job.error || ""}`)
+          .join("|");
+      }
+
+      function buildSourceUrl(source) {
+        const params = new URLSearchParams();
+        params.set("source", source);
+        params.set("quote_asset", getQuoteAssetValue());
+        params.set("tradeable_only", els.tradeableOnly.checked ? "true" : "false");
+        return `/api/source-pairs?${params.toString()}`;
+      }
+
+      function renderNav() {
+        els.navButtons.forEach((button) => {
+          const active = button.getAttribute("data-page") === state.selectedPage;
+          button.classList.toggle("active", active);
+        });
+      }
+
+      function renderPageVisibility() {
+        els.pagePanels.forEach((panel) => {
+          panel.classList.toggle("active", panel.getAttribute("data-page-group") === state.selectedPage);
+        });
+      }
+
+      function renderSourceSwitchButtons() {
+        els.sourceSwitchButtons.forEach((button) => {
+          const active = button.getAttribute("data-source-switch") === currentSource();
+          button.classList.toggle("active", active);
+        });
+      }
+
+      function renderLocalSourceOptions() {
+        els.localSourceFilter.innerHTML = [
+          '<option value="all">全部数据源</option>',
+          ...SOURCE_ORDER.map((source) => {
+            return `<option value="${escapeHtml(source)}">${escapeHtml(SOURCE_LABELS[source])}</option>`;
+          }),
+        ].join("");
+        els.localSourceFilter.value = currentLocalFilterSource();
+      }
+
+      function renderSourceHeading() {
+        const source = currentSource();
+        const label = SOURCE_LABELS[source];
+        els.sourceKicker.textContent = `1.1 数据源 / ${label}`;
+        els.sourceTitle.textContent = `${label}数据源`;
+        els.sourcePanelTitle.textContent = `${label}交易对`;
+        els.sourcePanelCopy.textContent = `${label} 的远端交易对、本地交易状态、本地数据状态单独展示。`;
+      }
+
+      function renderMetrics() {
+        els.remoteCount.textContent = String(SOURCE_ORDER.length);
+        els.manualCount.textContent = String(state.manualPairs.length);
+        els.localDataCount.textContent = String(state.localPairs.length);
+        els.jobCount.textContent = String(state.jobs.length);
+        els.strategyCount.textContent = String(state.strategies.length);
+        els.backtestCount.textContent = String(state.backtests.length);
+      }
+
+      function renderHomeSourceSummary() {
+        els.homeSourceSummary.innerHTML = SOURCE_ORDER.map((source) => {
+          const manualCount = state.manualPairs.filter((pair) => pair.source === source).length;
+          const localCount = state.localMeta && state.localMeta.count_by_source
+            ? state.localMeta.count_by_source[source] || 0
+            : 0;
+          const remoteStatus = state.remoteErrorsBySource[source]
+            ? "远端失败"
+            : (
+              Object.prototype.hasOwnProperty.call(state.remoteCountsBySource, source)
+                ? `远端 ${state.remoteCountsBySource[source]}`
+                : "远端未加载"
+            );
+          return `
+            <article class="manual-card">
+              <div class="manual-head">
+                <div class="symbol-cell">
+                  <div class="symbol-main">${escapeHtml(SOURCE_LABELS[source])}</div>
+                  <div class="subline">${escapeHtml(remoteStatus)} | 本地交易 ${escapeHtml(manualCount)} | 本地数据 ${escapeHtml(localCount)}</div>
+                </div>
+                <span class="pill good">${escapeHtml(source)}</span>
+              </div>
+            </article>
+          `;
+        }).join("");
+      }
+
+      function renderHomeQuickFacts() {
+        const items = [
+          ["当前数据源页", SOURCE_LABELS[currentSource()]],
+          ["当前本地筛选", currentLocalFilterSource() === "all" ? "全部数据源" : SOURCE_LABELS[currentLocalFilterSource()]],
+          ["默认报价资产", state.settings ? state.settings.default_quote_asset : "-"],
+          ["默认仅可交易", state.settings ? String(state.settings.default_tradeable_only) : "-"],
+          ["本地交易数", String(state.manualPairs.length)],
+          ["日志文件数", state.settings ? String(state.settings.log_count) : "-"],
+        ];
+        els.homeQuickFacts.innerHTML = items.map(([label, value]) => {
+          return `
+            <article class="settings-card">
+              <div class="field-label">${escapeHtml(label)}</div>
+              <div class="settings-value">${escapeHtml(value)}</div>
+            </article>
+          `;
+        }).join("");
+      }
+
+      function renderJobsListHtml() {
+        if (state.jobs.length === 0) {
+          return '<div class="empty">还没有下载任务</div>';
+        }
+
+        return state.jobs
+          .slice(0, 8)
+          .map((job) => {
+            const jobStatusClass = `job-${job.status}`;
+            const detail = `${job.intervals.join(", ")} | ${job.start_from_listing ? "从上市时间开始" : `起点 ${job.start_date || "默认"}`} | 结束 ${job.end_date}`;
+            return `
+              <article class="job-card">
+                <div class="job-head">
+                  <div class="symbol-cell">
+                    <div class="symbol-main">${escapeHtml(job.symbol)}</div>
+                    <div class="subline">${escapeHtml(detail)}</div>
+                  </div>
+                  <span class="pill ${jobStatusClass}">${escapeHtml(job.status.toUpperCase())}</span>
+                </div>
+                <div class="subline">创建 ${escapeHtml(formatTime(job.created_at))}</div>
+                <div class="subline">成功 ${escapeHtml(job.summaries.length)} / 失败 ${escapeHtml(job.failures.length)}</div>
+                ${job.error ? `<div class="subline">错误: ${escapeHtml(job.error)}</div>` : ""}
+              </article>
+            `;
+          })
+          .join("");
+      }
+
+      function renderJobs() {
+        if (!state.jobsMeta) {
+          els.jobsMeta.textContent = "任务状态尚未加载";
+        } else {
+          els.jobsMeta.textContent = `共 ${state.jobsMeta.count} 个任务，运行中 ${activeJobs().length} 个`;
+        }
+        els.localJobsMirror.innerHTML = renderJobsListHtml();
+      }
+
+      function renderSourceMeta() {
+        const label = SOURCE_LABELS[currentSource()];
+        if (state.remoteError) {
+          els.sourceMeta.textContent = state.remoteError;
+          return;
+        }
+        if (!state.remoteMeta) {
+          els.sourceMeta.textContent = `${label} 数据源等待加载`;
+          return;
+        }
+        const quoteText = state.remoteMeta.filters && state.remoteMeta.filters.quote_asset
+          ? state.remoteMeta.filters.quote_asset.join(", ")
+          : "ALL";
+        els.sourceMeta.textContent = `${label} 共 ${state.remoteMeta.count} 个交易对，报价资产 ${quoteText}，${state.remoteMeta.filters.tradeable_only ? "仅可交易" : "含不可交易"}，更新时间 ${formatTime(state.remoteMeta.fetched_at)}`;
+      }
+
+      function renderSourceTable() {
+        if (state.remoteError) {
+          els.sourceRows.innerHTML = `<tr><td class="empty" colspan="6">${escapeHtml(state.remoteError)}</td></tr>`;
+          return;
+        }
+
+        const source = currentSource();
+        const searchText = els.sourceSearch.value.trim().toUpperCase();
+        const manualPairs = new Set(state.manualPairs.map((pair) => manualKey(pair)));
+        const localDataSymbols = new Set(
+          state.localPairs.filter((pair) => pair.source === source).map((pair) => pair.symbol)
+        );
+        const activeSymbols = new Set(activeJobs().map((job) => job.symbol));
+        const filtered = state.remotePairs.filter((pair) => {
+          if (!searchText) {
+            return true;
+          }
+          return (
+            pair.symbol.includes(searchText) ||
+            pair.display_symbol.includes(searchText) ||
+            pair.base_asset.includes(searchText) ||
+            pair.quote_asset.includes(searchText)
+          );
+        });
+
+        if (filtered.length === 0) {
+          els.sourceRows.innerHTML = '<tr><td class="empty" colspan="6">没有匹配的交易对</td></tr>';
+          return;
+        }
+
+        els.sourceRows.innerHTML = filtered.map((pair) => {
+          const inManual = manualPairs.has(manualKey(pair));
+          const inLocalData = localDataSymbols.has(pair.symbol);
+          const canDownload = source === "binance";
+          const active = canDownload && activeSymbols.has(pair.symbol);
+          return `
+            <tr>
+              <td>
+                <div class="symbol-cell">
+                  <div class="symbol-main">${escapeHtml(pair.display_symbol)}</div>
+                  <div class="subline">${escapeHtml(pair.symbol)}</div>
+                </div>
+              </td>
+              <td><span class="pill ${pair.tradeable ? "status-trading" : "status-other"}">${escapeHtml(pair.status)}</span></td>
+              <td>${renderAssetPair(pair.base_asset, pair.quote_asset)}</td>
+              <td><span class="pill ${inManual ? "good" : "warn"}">${inManual ? "已添加" : "未添加"}</span></td>
+              <td><span class="pill ${inLocalData ? "good" : "warn"}">${inLocalData ? "已下载" : "未下载"}</span></td>
+              <td class="pill-row">
+                ${
+                  canDownload
+                    ? `<button class="button-small" type="button" data-action="download-source" data-symbol="${escapeHtml(pair.symbol)}" ${active ? "disabled" : ""}>${active ? "下载中" : "下载数据"}</button>`
+                    : ""
+                }
+                <button class="button-secondary button-small" type="button" data-action="add-manual" data-source="${escapeHtml(pair.source)}" data-display="${escapeHtml(pair.display_symbol)}" data-symbol="${escapeHtml(pair.symbol)}" data-quote="${escapeHtml(pair.quote_asset)}" ${inManual ? "disabled" : ""}>${inManual ? "已加入" : "加入本地交易"}</button>
+              </td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      function renderManualList() {
+        if (!els.manualList) {
+          return;
+        }
+        const filterSource = currentLocalFilterSource();
+        const filtered = state.manualPairs.filter((pair) => filterSource === "all" || pair.source === filterSource);
+        if (filtered.length === 0) {
+          els.manualList.innerHTML = `<div class="empty">${escapeHtml(filterSource === "all" ? "当前筛选下" : SOURCE_LABELS[filterSource])} 还没有本地交易</div>`;
+          return;
+        }
+
+        els.manualList.innerHTML = filtered.map((pair) => {
+          return `
+            <article class="manual-card">
+              <div class="manual-head">
+                <div class="symbol-cell">
+                  <div class="symbol-main">${escapeHtml(pair.display_symbol)}</div>
+                  ${renderAssetPair(pair.base_asset, pair.quote_asset)}
+                </div>
+                <span class="pill good">${escapeHtml(pair.source_label)}</span>
+              </div>
+              <div class="subline">添加时间 ${escapeHtml(formatTime(pair.created_at))}</div>
+              ${pair.note ? `<div class="subline">备注: ${escapeHtml(pair.note)}</div>` : ""}
+            </article>
+          `;
+        }).join("");
+      }
+
+      function renderLocalMeta() {
+        if (!state.localMeta) {
+          els.localMeta.textContent = "本地数据尚未加载";
+          return;
+        }
+
+        const filterSource = currentLocalFilterSource();
+        if (filterSource !== "all") {
+          const rootInfo = state.localMeta.roots ? state.localMeta.roots[filterSource] : null;
+          const count = rootInfo ? rootInfo.count || 0 : 0;
+          els.localMeta.textContent = count > 0
+            ? `${SOURCE_LABELS[filterSource]} 已下载 ${count} 个交易对`
+            : `${SOURCE_LABELS[filterSource]} 暂无本地数据`;
+          return;
+        }
+
+        const counts = SOURCE_ORDER.map((source) => {
+          const count = state.localMeta.count_by_source ? state.localMeta.count_by_source[source] || 0 : 0;
+          return `${SOURCE_LABELS[source]} ${count}`;
+        }).join(" / ");
+        els.localMeta.textContent = `本地数据按来源区分展示。${counts}`;
+      }
+
+      function renderLocalData() {
+        if (state.localPairs.length === 0) {
+          els.localRows.innerHTML = '<tr><td class="empty" colspan="6">当前还没有本地数据</td></tr>';
+          return;
+        }
+
+        const filterSource = currentLocalFilterSource();
+        const searchText = els.localSearch.value.trim().toUpperCase();
+        const activeSymbols = new Set(activeJobs().map((job) => job.symbol));
+        const filtered = state.localPairs.filter((pair) => {
+          if (filterSource !== "all" && pair.source !== filterSource) {
+            return false;
+          }
+          if (!searchText) {
+            return true;
+          }
+          return (
+            pair.symbol.includes(searchText) ||
+            pair.display_symbol.includes(searchText) ||
+            pair.intervals.join(" ").toUpperCase().includes(searchText)
+          );
+        });
+
+        if (filtered.length === 0) {
+          els.localRows.innerHTML = '<tr><td class="empty" colspan="6">没有匹配的本地数据</td></tr>';
+          return;
+        }
+
+        els.localRows.innerHTML = filtered.map((pair) => {
+          const canDownload = pair.source === "binance";
+          const active = canDownload && activeSymbols.has(pair.symbol);
+          const intervalPills = pair.intervals.map((interval) => `<span class="pill info">${escapeHtml(interval)}</span>`).join("");
+          return `
+            <tr>
+              <td><span class="pill good">${escapeHtml(pair.source_label)}</span></td>
+              <td>
+                <div class="symbol-cell">
+                  <div class="symbol-main">${escapeHtml(pair.display_symbol)}</div>
+                  <div class="subline">${escapeHtml(pair.symbol)}</div>
+                  <div class="subline">周期 ${escapeHtml(pair.interval_count)}</div>
+                </div>
+              </td>
+              <td><div class="pill-row">${intervalPills}</div></td>
+              <td class="subline">jsonl ${escapeHtml(pair.data_file_count)} / meta ${escapeHtml(pair.metadata_file_count)} / checkpoint ${escapeHtml(pair.checkpoint_count)}</td>
+              <td class="subline">${escapeHtml(formatTime(pair.last_updated))}</td>
+              <td class="pill-row">
+                ${
+                  canDownload
+                    ? `<button class="button-small" type="button" data-action="download-local" data-symbol="${escapeHtml(pair.symbol)}" ${active ? "disabled" : ""}>${active ? "下载中" : "下载数据"}</button>
+                <button class="button-secondary button-small" type="button" data-action="sync-local" data-symbol="${escapeHtml(pair.symbol)}" data-intervals="${escapeHtml(pair.intervals.join(","))}" ${active ? "disabled" : ""}>${active ? "同步中" : "同步最新"}</button>`
+                    : '<span class="subline">当前仅支持币安下载</span>'
+                }
+              </td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      function renderStrategies() {
+        if (state.strategies.length === 0) {
+          els.strategyRows.innerHTML = '<tr><td class="empty" colspan="4">还没有策略配置</td></tr>';
+          return;
+        }
+
+        els.strategyRows.innerHTML = state.strategies.map((strategy) => {
+          const symbolText = strategy.symbols && strategy.symbols.length ? strategy.symbols.join(", ") : "未配置";
+          const artifactText = [
+            strategy.summary_exists ? "summary 已生成" : "summary 未生成",
+            strategy.trades_path ? "trades 已配置" : "trades 未配置",
+            strategy.equity_path ? "equity 已配置" : "equity 未配置",
+          ].join(" | ");
+          return `
+            <tr>
+              <td>
+                <div class="symbol-cell">
+                  <div class="symbol-main">${escapeHtml(strategy.strategy_name)} / ${escapeHtml(strategy.strategy_version)}</div>
+                  <div class="subline">${escapeHtml(strategy.description || "无描述")}</div>
+                </div>
+              </td>
+              <td class="subline">${escapeHtml(strategy.exchange || "-")} / ${escapeHtml(strategy.market_type || "-")} / ${escapeHtml(strategy.interval || "-")}<br />${escapeHtml(symbolText)}</td>
+              <td class="subline">${escapeHtml(strategy.backtest_start || "-")} → ${escapeHtml(strategy.backtest_end || "-")}</td>
+              <td class="subline">${escapeHtml(artifactText)}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      function renderBacktests() {
+        if (state.backtests.length === 0) {
+          els.backtestRows.innerHTML = '<tr><td class="empty" colspan="4">还没有回测记录</td></tr>';
+          return;
+        }
+
+        els.backtestRows.innerHTML = state.backtests.map((record) => {
+          const metrics = record.metrics ? JSON.stringify(record.metrics) : "暂无指标";
+          const artifactText = [
+            `summary ${record.summary_exists ? "yes" : "no"}`,
+            `trades ${record.trades_exists ? "yes" : "no"}`,
+            `equity ${record.equity_exists ? "yes" : "no"}`,
+          ].join(" | ");
+          return `
+            <tr>
+              <td>
+                <div class="symbol-cell">
+                  <div class="symbol-main">${escapeHtml(record.strategy_name)} / ${escapeHtml(record.strategy_version)}</div>
+                  <div class="subline">指标摘要 ${record.metrics ? "已生成" : "待生成"}</div>
+                </div>
+              </td>
+              <td><span class="pill ${record.status === "ready" ? "status-ready" : "status-pending"}">${escapeHtml(record.status.toUpperCase())}</span></td>
+              <td class="subline">${escapeHtml(artifactText)}<br />${escapeHtml(metrics)}</td>
+              <td class="subline">${escapeHtml(formatTime(record.updated_at))}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      function renderSettings() {
+        if (!state.settings) {
+          els.settingsGrid.innerHTML = '<div class="empty">系统设置尚未加载</div>';
+          return;
+        }
+
+        const settingsItems = [
+          ["币种图标数量", String(state.settings.currency_icon_count)],
+          ["缺失币种图标", String(state.settings.currency_icon_missing_count)],
+          ["Binance ExchangeInfo", state.settings.exchange_info_base_url],
+          ["Binance Market Data", state.settings.market_data_base_url],
+          ["默认报价资产", state.settings.default_quote_asset],
+          ["默认仅可交易", String(state.settings.default_tradeable_only)],
+          ["Python", state.settings.python_version],
+          ["日志文件数", String(state.settings.log_count)],
+          ["本地交易数", String(state.settings.local_trading_pair_count)],
+          ["下载任务数", String(state.settings.download_job_count)],
+        ];
+
+        els.settingsGrid.innerHTML = settingsItems.map(([label, value]) => {
+          const renderedValue = value !== null && typeof value === "object" ? JSON.stringify(value) : String(value);
+          return `
+            <article class="settings-card">
+              <div class="field-label">${escapeHtml(label)}</div>
+              <div class="settings-value">${escapeHtml(renderedValue)}</div>
+            </article>
+          `;
+        }).join("");
+      }
+
+      function renderCurrencyIcons() {
+        if (!state.currencyIconMeta) {
+          els.currencyIconSummary.textContent = "币种图标尚未加载。";
+          els.currencyIconGrid.innerHTML = '<div class="empty">币种图标尚未加载</div>';
+          return;
+        }
+
+        const searchText = els.currencyIconSearch.value.trim().toUpperCase();
+        const filtered = state.currencyIcons.filter((entry) => !searchText || entry.asset.includes(searchText));
+        const sourceCounts = state.currencyIconMeta.source_counts && typeof state.currencyIconMeta.source_counts === "object"
+          ? Object.entries(state.currencyIconMeta.source_counts)
+              .map(([source, count]) => `${SOURCE_LABELS[source] || source} ${count}`)
+              .join(" / ")
+          : "";
+        const generatedText = state.currencyIconMeta.generated_at
+          ? `，基线 ${formatTime(state.currencyIconMeta.generated_at)}`
+          : "";
+        const sourceText = sourceCounts ? `，来源 ${sourceCounts}` : "";
+        const missingText = state.currencyIconMeta.missing_count
+          ? `，缺失 ${state.currencyIconMeta.missing_count}`
+          : "，已全部覆盖";
+        els.currencyIconSummary.textContent = `已覆盖 ${state.currencyIconMeta.available_count}/${state.currencyIconMeta.count}${missingText}${generatedText}${sourceText}`;
+
+        if (filtered.length === 0) {
+          els.currencyIconGrid.innerHTML = '<div class="empty">没有匹配的币种图标</div>';
+          return;
+        }
+
+        els.currencyIconGrid.innerHTML = filtered.map((entry) => {
+          return `
+            <article class="currency-icon-card">
+              <div class="currency-icon-card-head">
+                <img class="currency-icon-preview" src="${escapeHtml(entry.icon_url)}" alt="${escapeHtml(entry.asset)} icon" loading="lazy" />
+                <span class="pill ${entry.exists ? "good" : "warn"}">${entry.exists ? "已就绪" : "缺失"}</span>
+              </div>
+              <div class="currency-icon-code">${escapeHtml(entry.asset)}</div>
+              <div class="currency-icon-meta">
+                ${entry.cataloged ? "来源基线币种" : "手动新增币种"}<br />
+                ${escapeHtml(entry.extension ? entry.extension.toUpperCase() : "未上传")}<br />
+                ${escapeHtml(entry.updated_at ? formatTime(entry.updated_at) : "未记录更新时间")}
+              </div>
+            </article>
+          `;
+        }).join("");
+      }
+
+      function renderAll() {
+        renderNav();
+        renderPageVisibility();
+        renderSourceSwitchButtons();
+        renderLocalSourceOptions();
+        renderSourceHeading();
+        renderMetrics();
+        renderHomeSourceSummary();
+        renderHomeQuickFacts();
+        renderJobs();
+        renderSourceMeta();
+        renderSourceTable();
+        renderManualList();
+        renderLocalMeta();
+        renderLocalData();
+        renderStrategies();
+        renderBacktests();
+        renderSettings();
+        renderCurrencyIcons();
+      }
+
+      async function loadSourcePairs(source = currentSource()) {
+        try {
+          const payload = await requestJson(buildSourceUrl(source));
+          state.remotePairs = payload.pairs || [];
+          state.remoteMeta = payload;
+          state.remoteError = "";
+          state.remoteCountsBySource[source] = payload.count || 0;
+          delete state.remoteErrorsBySource[source];
+        } catch (error) {
+          state.remotePairs = [];
+          state.remoteMeta = null;
+          state.remoteError = error.message || "数据源加载失败";
+          state.remoteErrorsBySource[source] = state.remoteError;
+        }
+      }
+
+      async function loadManualPairs() {
+        const payload = await requestJson("/api/local-trading-pairs");
+        state.manualPairs = payload.pairs || [];
+      }
+
+      async function loadLocalPairs() {
+        const payload = await requestJson("/api/local-pairs");
+        state.localPairs = payload.pairs || [];
+        state.localMeta = payload;
+      }
+
+      async function loadStrategies() {
+        const payload = await requestJson("/api/strategies");
+        state.strategies = payload.strategies || [];
+      }
+
+      async function loadBacktests() {
+        const payload = await requestJson("/api/backtest-records");
+        state.backtests = payload.records || [];
+      }
+
+      async function loadSettings() {
+        state.settings = await requestJson("/api/system-settings");
+      }
+
+      async function loadCurrencyIcons() {
+        const payload = await requestJson("/api/currency-icons");
+        state.currencyIconMeta = payload;
+        state.currencyIcons = payload.entries || [];
+      }
+
+      async function loadJobs({ refreshLocalOnChange = false } = {}) {
+        const payload = await requestJson("/api/download-jobs");
+        const nextJobs = payload.jobs || [];
+        const nextSignature = computeJobSignature(nextJobs);
+        const changed = nextSignature !== state.jobSignature;
+        state.jobs = nextJobs;
+        state.jobsMeta = payload;
+        state.jobSignature = nextSignature;
+        if (changed && refreshLocalOnChange) {
+          await loadLocalPairs();
+        }
+      }
+
+      async function bootstrapApp() {
+        setStatus("正在加载后台数据...");
+        try {
+          await Promise.all([
+            loadSourcePairs(),
+            loadManualPairs(),
+            loadLocalPairs(),
+            loadStrategies(),
+            loadBacktests(),
+            loadSettings(),
+            loadCurrencyIcons(),
+            loadJobs(),
+          ]);
+          renderAll();
+          setStatus(`加载完成 ${formatTime(new Date().toISOString())}`);
+        } catch (error) {
+          renderAll();
+          setStatus(error.message || "后台数据加载失败", true);
+        }
+      }
+
+      function currentDownloadConfig() {
+        return {
+          intervals: els.intervalInput.value.trim(),
+          start_date: els.startDateInput.value || null,
+          end_date: els.endDateInput.value || toLocalDateValue(new Date()),
+          start_from_listing: els.startFromListing.checked,
+        };
+      }
+
+      async function createDownloadJob(payload) {
+        const response = await requestJson("/api/download-klines", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        await loadJobs();
+        renderAll();
+        setStatus(`已创建下载任务 ${response.job.symbol}`);
+      }
+
+      async function handleDownloadSymbol(symbol) {
+        const config = currentDownloadConfig();
+        if (!config.intervals) {
+          setStatus("周期不能为空", true);
+          return;
+        }
+        try {
+          await createDownloadJob({
+            symbol,
+            intervals: config.intervals,
+            start_date: config.start_date,
+            end_date: config.end_date,
+            start_from_listing: config.start_from_listing,
+          });
+        } catch (error) {
+          setStatus(error.message || "创建下载任务失败", true);
+        }
+      }
+
+      async function handleSyncLocal(symbol, intervals) {
+        const today = toLocalDateValue(new Date());
+        try {
+          await createDownloadJob({
+            symbol,
+            intervals,
+            start_date: today,
+            end_date: today,
+            start_from_listing: false,
+          });
+        } catch (error) {
+          setStatus(error.message || "同步最新数据失败", true);
+        }
+      }
+
+      async function addManualPair(payload, { navigateToLocalData = false } = {}) {
+        const response = await requestJson("/api/local-trading-pairs", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        await Promise.all([loadManualPairs(), loadLocalPairs()]);
+        if (navigateToLocalData) {
+          state.selectedLocalSource = response.pair.source;
+          state.selectedPage = "local-data";
+        }
+        renderAll();
+        setStatus(
+          navigateToLocalData
+            ? `已添加本地交易 ${response.pair.display_symbol}，已切换到本地数据页`
+            : `已添加本地交易 ${response.pair.display_symbol}`
+        );
+        return response.pair;
+      }
+
+      function readFileAsBase64(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = String(reader.result || "");
+            const commaIndex = result.indexOf(",");
+            if (commaIndex < 0) {
+              reject(new Error("无法读取图标文件"));
+              return;
+            }
+            resolve(result.slice(commaIndex + 1));
+          };
+          reader.onerror = () => reject(reader.error || new Error("图标文件读取失败"));
+          reader.readAsDataURL(file);
+        });
+      }
+
+      async function handleUploadCurrencyIcon() {
+        const file = els.currencyIconFileInput.files && els.currencyIconFileInput.files[0];
+        const rawAsset = els.currencyIconAssetInput.value.trim() || (file ? file.name.replace(/\.[^.]+$/, "") : "");
+        const asset = rawAsset.trim().toUpperCase();
+        if (!asset) {
+          setStatus("请先填写币种代码", true);
+          return;
+        }
+        if (!file) {
+          setStatus("请先选择图标文件", true);
+          return;
+        }
+
+        els.uploadCurrencyIconButton.disabled = true;
+        setStatus(`正在上传 ${asset} 图标...`);
+        try {
+          const contentBase64 = await readFileAsBase64(file);
+          const response = await requestJson("/api/currency-icons", {
+            method: "POST",
+            body: JSON.stringify({
+              asset,
+              filename: file.name,
+              mime_type: file.type || null,
+              content_base64: contentBase64,
+            }),
+          });
+          await Promise.all([loadCurrencyIcons(), loadSettings()]);
+          renderAll();
+          els.currencyIconAssetInput.value = asset;
+          els.currencyIconFileInput.value = "";
+          setStatus(`已上传币种图标 ${response.entry.asset}`);
+        } catch (error) {
+          setStatus(error.message || "币种图标上传失败", true);
+        } finally {
+          els.uploadCurrencyIconButton.disabled = false;
+        }
+      }
+
+      async function switchPage(page) {
+        if (!page) {
+          return;
+        }
+        state.selectedPage = page;
+        renderAll();
+        if (page === "data-sources" && !state.remoteMeta) {
+          await loadSourcePairs();
+          renderAll();
+        }
+      }
+
+      async function switchSource(source) {
+        if (!source || source === state.selectedSource) {
+          return;
+        }
+        state.selectedSource = source;
+        setStatus(`正在加载 ${SOURCE_LABELS[source]} 数据源...`);
+        await Promise.all([loadSourcePairs(source), loadManualPairs(), loadLocalPairs()]);
+        renderAll();
+        setStatus(`${SOURCE_LABELS[source]} 数据源已加载`);
+      }
+
+      els.navButtons.forEach((button) => {
+        button.addEventListener("click", async () => {
+          const page = button.getAttribute("data-page");
+          if (!page || page === state.selectedPage) {
+            return;
+          }
+          await switchPage(page);
+        });
+      });
+
+      els.sourceSwitchButtons.forEach((button) => {
+        button.addEventListener("click", async () => {
+          const source = button.getAttribute("data-source-switch");
+          await switchSource(source);
+        });
+      });
+
+      els.sourceSearch.addEventListener("input", renderSourceTable);
+      els.localSearch.addEventListener("input", renderLocalData);
+      els.currencyIconSearch.addEventListener("input", renderCurrencyIcons);
+
+      els.localSourceFilter.addEventListener("change", () => {
+        state.selectedLocalSource = els.localSourceFilter.value || "all";
+        renderAll();
+      });
+
+      els.currencyIconFileInput.addEventListener("change", () => {
+        const file = els.currencyIconFileInput.files && els.currencyIconFileInput.files[0];
+        if (!file) {
+          return;
+        }
+        if (!els.currencyIconAssetInput.value.trim()) {
+          els.currencyIconAssetInput.value = file.name.replace(/\.[^.]+$/, "").toUpperCase();
+        }
+      });
+
+      els.uploadCurrencyIconButton.addEventListener("click", handleUploadCurrencyIcon);
+
+      els.tradeableOnly.addEventListener("change", async () => {
+        setStatus(`正在刷新 ${SOURCE_LABELS[currentSource()]} 交易对...`);
+        await loadSourcePairs();
+        renderAll();
+        setStatus(`${SOURCE_LABELS[currentSource()]} 交易对已刷新`);
+      });
+
+      els.quoteAssetInput.addEventListener("keydown", async (event) => {
+        if (event.key !== "Enter") {
+          return;
+        }
+        event.preventDefault();
+        setStatus(`正在刷新 ${SOURCE_LABELS[currentSource()]} 交易对...`);
+        await loadSourcePairs();
+        renderAll();
+        setStatus(`${SOURCE_LABELS[currentSource()]} 交易对已刷新`);
+      });
+
+      els.sourceRows.addEventListener("click", async (event) => {
+        const button = event.target.closest("button[data-action]");
+        if (!button) {
+          return;
+        }
+        const action = button.getAttribute("data-action");
+        const symbol = button.getAttribute("data-symbol");
+        if (!symbol) {
+          return;
+        }
+
+        if (action === "download-source") {
+          await handleDownloadSymbol(symbol);
+          return;
+        }
+
+        if (action === "add-manual") {
+          try {
+            await addManualPair(
+              {
+                source: button.getAttribute("data-source"),
+                symbol: button.getAttribute("data-display") || symbol,
+                quote_asset: button.getAttribute("data-quote") || "USDT",
+                note: null,
+              },
+              { navigateToLocalData: true }
+            );
+          } catch (error) {
+            setStatus(error.message || "添加本地交易失败", true);
+          }
+        }
+      });
+
+      els.localRows.addEventListener("click", async (event) => {
+        const button = event.target.closest("button[data-action]");
+        if (!button) {
+          return;
+        }
+        const action = button.getAttribute("data-action");
+        const symbol = button.getAttribute("data-symbol");
+        if (!symbol) {
+          return;
+        }
+        if (action === "download-local") {
+          await handleDownloadSymbol(symbol);
+          return;
+        }
+        if (action === "sync-local") {
+          const intervals = button.getAttribute("data-intervals") || "";
+          await handleSyncLocal(symbol, intervals);
+        }
+      });
+
+      setInterval(() => {
+        loadJobs({ refreshLocalOnChange: true })
+          .then(() => {
+            renderAll();
+          })
+          .catch(() => {});
+      }, 4000);
+
+      els.endDateInput.value = toLocalDateValue(new Date());
+      bootstrapApp();
+    </script>
+  </body>
+</html>

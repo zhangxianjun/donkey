@@ -12,12 +12,15 @@
 
 ```text
 donkey/
+├── .dockerignore
+├── Dockerfile
 ├── README.md
 ├── PROJECT_STRUCTURE.md
 ├── config/
 │   ├── factors/
 │   │   └── daily_core_v1.yaml
 │   └── strategies/
+│       ├── atr_trailing_v1.yaml
 │       └── vol_breakout_v1.yaml
 ├── data/
 │   ├── raw/
@@ -38,15 +41,34 @@ donkey/
 │   ├── .gitkeep
 │   ├── experiments.duckdb
 │   └── quant.duckdb
+├── logs/
+├── scripts/
+│   ├── build_docker_image.sh
+│   ├── push_docker_image.sh
+│   └── run_docker_image.sh
 ├── sql/
 │   └── init_v1.sql
 ├── src/
+│   ├── admin/
+│   │   ├── __init__.py
+│   │   ├── pairs_dashboard.py
+│   │   └── static/
+│   │       └── pairs_dashboard.html
 │   ├── ingestion/
 │   │   ├── __init__.py
 │   │   └── binance_ohlcv.py
 │   ├── normalize/
 │   │   ├── __init__.py
 │   │   └── market_ohlcv.py
+│   ├── strategies/
+│   │   ├── builtin/
+│   │   │   ├── __init__.py
+│   │   │   └── atr.py
+│   │   ├── __init__.py
+│   │   ├── core.py
+│   │   ├── loader.py
+│   │   ├── run.py
+│   │   └── simple_yaml.py
 │   ├── warehouse/
 │   │   ├── __init__.py
 │   │   └── load_duckdb.py
@@ -54,7 +76,9 @@ donkey/
 └── tests/
     ├── test_binance_ohlcv.py
     ├── test_load_duckdb.py
-    └── test_market_ohlcv_normalize.py
+    ├── test_market_ohlcv_normalize.py
+    ├── test_pairs_dashboard.py
+    └── test_strategy_loader.py
 ```
 
 ## 2. 各目录职责
@@ -62,6 +86,16 @@ donkey/
 `README.md`
 
 - 项目总说明，记录架构设计、阶段规划和运行方式。
+
+`.dockerignore`
+
+- Docker 构建上下文排除规则。
+- 当前会忽略本地数据、DuckDB 文件、日志、测试和 git 元信息。
+
+`Dockerfile`
+
+- 项目容器镜像定义。
+- 当前默认安装 `duckdb`，并把 `src/`、`config/`、`sql/` 打进镜像。
 
 `PROJECT_STRUCTURE.md`
 
@@ -71,6 +105,7 @@ donkey/
 
 - 放配置类文件。
 - `config/strategies/` 存放策略 YAML。
+- `config/strategies/atr_trailing_v1.yaml` 是当前默认的 ATR 热加载示例策略。
 - `config/factors/` 存放因子字段清单和元数据 YAML。
 
 `data/raw/`
@@ -92,6 +127,16 @@ donkey/
 - DuckDB 数据库文件目录。
 - 当前已经落地 `quant.duckdb` 和 `experiments.duckdb`。
 
+`logs/`
+
+- 运行日志目录。
+- 当前用于保存抓取器和后续容器启动日志。
+
+`scripts/`
+
+- 仓库级运维脚本。
+- 当前包含 Docker 镜像构建、推送、运行脚本。
+
 `sql/`
 
 - 数据库初始化和建表 SQL。
@@ -100,8 +145,11 @@ donkey/
 `src/`
 
 - 业务代码主目录。
+- `src/admin/` 提供本地管理面板和后台下载任务入口。
+- `src/admin/static/` 存放管理面板静态页面。
 - `src/ingestion/` 负责采集 Binance 原始 K 线。
 - `src/normalize/` 负责把 raw 数据统一成 `market_ohlcv`。
+- `src/strategies/` 负责策略模块加载、热重载和信号生成。
 - `src/warehouse/` 负责把 normalized 数据装入 DuckDB。
 
 `tests/`
@@ -113,12 +161,15 @@ donkey/
 
 ### 根目录
 
+- `.dockerignore`
+- `Dockerfile`
 - `README.md`
 - `PROJECT_STRUCTURE.md`
 
 ### 配置
 
 - `config/factors/daily_core_v1.yaml`
+- `config/strategies/atr_trailing_v1.yaml`
 - `config/strategies/vol_breakout_v1.yaml`
 
 ### SQL / DB
@@ -128,13 +179,29 @@ donkey/
 - `db/quant.duckdb`
 - `db/experiments.duckdb`
 
+### 脚本
+
+- `scripts/build_docker_image.sh`
+- `scripts/push_docker_image.sh`
+- `scripts/run_docker_image.sh`
+
 ### 源码
 
 - `src/__init__.py`
+- `src/admin/__init__.py`
+- `src/admin/pairs_dashboard.py`
+- `src/admin/static/pairs_dashboard.html`
 - `src/ingestion/__init__.py`
 - `src/ingestion/binance_ohlcv.py`
 - `src/normalize/__init__.py`
 - `src/normalize/market_ohlcv.py`
+- `src/strategies/__init__.py`
+- `src/strategies/core.py`
+- `src/strategies/loader.py`
+- `src/strategies/run.py`
+- `src/strategies/simple_yaml.py`
+- `src/strategies/builtin/__init__.py`
+- `src/strategies/builtin/atr.py`
 - `src/warehouse/__init__.py`
 - `src/warehouse/load_duckdb.py`
 
@@ -143,6 +210,8 @@ donkey/
 - `tests/test_binance_ohlcv.py`
 - `tests/test_market_ohlcv_normalize.py`
 - `tests/test_load_duckdb.py`
+- `tests/test_pairs_dashboard.py`
+- `tests/test_strategy_loader.py`
 
 ## 4. 当前数据目录中的样例文件
 
