@@ -38,6 +38,8 @@ from src.ingestion.binance_ohlcv import (
     utc_now_iso,
     validate_args,
 )
+from src.normalize import market_ohlcv as normalized_market_ohlcv
+from src.warehouse import load_duckdb as warehouse_load_duckdb
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8866
@@ -57,6 +59,10 @@ DEFAULT_TRADEABLE_ONLY = True
 CURRENCY_ICON_CATALOG_NAME = "catalog.json"
 DEFAULT_CURRENCY_ICON_ASSET = "DEFAULT"
 MAX_CURRENCY_ICON_BYTES = 2 * 1024 * 1024
+CHARTING_LIBRARY_STATIC_ROOT = Path(__file__).resolve().parent / "static" / "charting_library"
+CHARTING_LIBRARY_BUNDLE_PATH = CHARTING_LIBRARY_STATIC_ROOT / "charting_library.js"
+DEFAULT_NORMALIZE_OUTPUT_FORMAT = "auto"
+SUPPORTED_NORMALIZE_SOURCES = {"binance"}
 ALLOWED_CURRENCY_ICON_EXTENSIONS = {
     ".svg": "image/svg+xml",
     ".png": "image/png",
@@ -192,6 +198,56 @@ class DownloadJob:
     manifest_path: str | None = None
     summaries: list[dict[str, Any]] = field(default_factory=list)
     failures: list[dict[str, Any]] = field(default_factory=list)
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class NormalizeRequest:
+    source: str
+    symbols: list[str]
+    intervals: list[str]
+    data_version: str
+    output_format: str
+
+
+@dataclass
+class NormalizeJob:
+    job_id: str
+    source: str
+    symbols: list[str]
+    intervals: list[str]
+    data_version: str
+    output_format: str
+    status: str
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    raw_root: str | None = None
+    output_root: str | None = None
+    manifest_path: str | None = None
+    raw_file_count: int = 0
+    interval_outputs: list[dict[str, Any]] = field(default_factory=list)
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class DuckDBLoadRequest:
+    data_version: str
+    intervals: list[str] | None
+
+
+@dataclass
+class DuckDBLoadJob:
+    job_id: str
+    data_version: str
+    intervals: list[str] | None
+    status: str
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    db_path: str | None = None
+    loaded_files: list[dict[str, Any]] = field(default_factory=list)
+    market_ohlcv_rows_for_data_version: int | None = None
     error: str | None = None
 
 
@@ -1062,6 +1118,544 @@ def discover_local_pairs_catalog(
     return sorted(pairs, key=lambda pair: (pair.source, pair.symbol)), roots
 
 
+def parse_json_file(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def charting_library_status() -> dict[str, Any]:
+    return {
+        "root": str(CHARTING_LIBRARY_STATIC_ROOT),
+        "bundle_path": str(CHARTING_LIBRARY_BUNDLE_PATH),
+        "bundle_exists": CHARTING_LIBRARY_BUNDLE_PATH.is_file(),
+        "fetched_at": utc_now_iso(),
+    }
+
+
+def discover_normalized_datasets(config: DashboardConfig) -> dict[str, Any]:
+    versions: list[dict[str, Any]] = []
+    files: list[dict[str, Any]] = []
+    if not config.normalized_root.exists():
+        return {
+            "normalized_root": str(config.normalized_root),
+            "count": 0,
+            "version_count": 0,
+            "versions": versions,
+            "files": files,
+            "charting_library": charting_library_status(),
+            "fetched_at": utc_now_iso(),
+        }
+
+    for version_dir in sorted(config.normalized_root.iterdir(), key=lambda path: path.name):
+        if not version_dir.is_dir() or version_dir.name.startswith("."):
+            continue
+
+        data_version = version_dir.name
+        manifest_path = version_dir / "normalize_manifest.json"
+        manifest = parse_json_file(manifest_path)
+        manifest_outputs: dict[str, dict[str, Any]] = {}
+        if isinstance(manifest, dict):
+            for item in manifest.get("interval_outputs", []):
+                if not isinstance(item, dict):
+                    continue
+                interval = str(item.get("interval", "")).strip()
+                if interval:
+                    manifest_outputs[interval] = item
+
+        normalized_files = warehouse_load_duckdb.discover_normalized_files(
+            config.normalized_root,
+            data_version=data_version,
+            intervals=None,
+        )
+        if not normalized_files and not manifest_path.exists():
+            continue
+
+        version_intervals: list[str] = []
+        version_formats: list[str] = []
+        version_updated_at: float | None = None
+        version_row_count = 0
+
+        for normalized_file in normalized_files:
+            file_stat = normalized_file.path.stat()
+            if version_updated_at is None or file_stat.st_mtime > version_updated_at:
+                version_updated_at = file_stat.st_mtime
+
+            manifest_output = manifest_outputs.get(normalized_file.interval, {})
+            row_count = manifest_output.get("row_count")
+            if isinstance(row_count, int):
+                version_row_count += row_count
+
+            files.append(
+                {
+                    "data_version": data_version,
+                    "interval": normalized_file.interval,
+                    "file_format": normalized_file.file_format,
+                    "path": str(normalized_file.path),
+                    "size_bytes": int(file_stat.st_size),
+                    "updated_at": isoformat_utc_from_timestamp(file_stat.st_mtime),
+                    "row_count": row_count if isinstance(row_count, int) else None,
+                    "source_file_count": (
+                        int(manifest_output.get("source_file_count"))
+                        if isinstance(manifest_output.get("source_file_count"), int)
+                        else None
+                    ),
+                    "duplicate_rows_removed": (
+                        int(manifest_output.get("duplicate_rows_removed"))
+                        if isinstance(manifest_output.get("duplicate_rows_removed"), int)
+                        else None
+                    ),
+                }
+            )
+            version_intervals.append(normalized_file.interval)
+            version_formats.append(normalized_file.file_format)
+
+        if version_updated_at is None and manifest_path.exists():
+            version_updated_at = manifest_path.stat().st_mtime
+
+        versions.append(
+            {
+                "data_version": data_version,
+                "path": str(version_dir),
+                "file_count": len(normalized_files),
+                "intervals": dedupe_preserve_order(version_intervals),
+                "formats": dedupe_preserve_order(version_formats),
+                "row_count": version_row_count or None,
+                "manifest_path": str(manifest_path) if manifest_path.exists() else None,
+                "manifest_created_at": (
+                    str(manifest.get("created_at")) if isinstance(manifest, dict) else None
+                ),
+                "raw_file_count": (
+                    int(manifest.get("raw_file_count"))
+                    if isinstance(manifest, dict) and isinstance(manifest.get("raw_file_count"), int)
+                    else None
+                ),
+                "output_format": (
+                    str(manifest.get("output_format"))
+                    if isinstance(manifest, dict) and manifest.get("output_format") is not None
+                    else None
+                ),
+                "updated_at": (
+                    isoformat_utc_from_timestamp(version_updated_at)
+                    if version_updated_at is not None
+                    else None
+                ),
+            }
+        )
+
+    return {
+        "normalized_root": str(config.normalized_root),
+        "count": len(files),
+        "version_count": len(versions),
+        "versions": versions,
+        "files": files,
+        "charting_library": charting_library_status(),
+        "fetched_at": utc_now_iso(),
+    }
+
+
+def parse_symbols_value(value: Any) -> list[str]:
+    if value is None or value == "" or value == []:
+        return []
+
+    raw_items: list[str]
+    if isinstance(value, str):
+        raw_items = value.split(",")
+    elif isinstance(value, list):
+        raw_items = []
+        for item in value:
+            raw_items.extend(str(item).split(","))
+    else:
+        raise ValueError("symbols must be a comma-separated string or an array.")
+
+    return dedupe_preserve_order(
+        [normalize_symbol(item) for item in raw_items if str(item).strip()]
+    )
+
+
+def parse_normalize_request_payload(payload: Any) -> NormalizeRequest:
+    if not isinstance(payload, dict):
+        raise ValueError("JSON body must be an object.")
+
+    source = str(payload.get("source", "binance")).strip().lower() or "binance"
+    if source not in SUPPORTED_NORMALIZE_SOURCES:
+        raise ValueError("normalize currently supports: binance.")
+
+    symbol_value = payload.get("symbol")
+    symbols = (
+        [normalize_symbol(str(symbol_value))]
+        if symbol_value not in {None, ""}
+        else parse_symbols_value(payload.get("symbols"))
+    )
+
+    data_version = str(payload.get("data_version", "")).strip()
+    if not data_version:
+        raise ValueError("data_version is required.")
+
+    output_format = str(payload.get("output_format", DEFAULT_NORMALIZE_OUTPUT_FORMAT)).strip().lower()
+    if output_format not in normalized_market_ohlcv.SUPPORTED_OUTPUT_FORMATS:
+        raise ValueError(
+            "output_format must be one of: "
+            + ", ".join(normalized_market_ohlcv.SUPPORTED_OUTPUT_FORMATS)
+            + "."
+        )
+
+    return NormalizeRequest(
+        source=source,
+        symbols=symbols,
+        intervals=parse_intervals_value(payload.get("intervals")),
+        data_version=data_version,
+        output_format=output_format,
+    )
+
+
+def parse_duckdb_load_request_payload(payload: Any) -> DuckDBLoadRequest:
+    if not isinstance(payload, dict):
+        raise ValueError("JSON body must be an object.")
+
+    data_version = str(payload.get("data_version", "")).strip()
+    if not data_version:
+        raise ValueError("data_version is required.")
+
+    intervals_value = payload.get("intervals")
+    intervals = None
+    if intervals_value is not None and intervals_value != "" and intervals_value != []:
+        intervals = parse_intervals_value(intervals_value)
+
+    return DuckDBLoadRequest(data_version=data_version, intervals=intervals)
+
+
+def timestamp_seconds_to_datetime(value: Any) -> datetime:
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("timestamp filter must be an integer unix timestamp.") from exc
+    return datetime.fromtimestamp(numeric, tz=UTC)
+
+
+def parse_positive_int(value: Any, *, field_name: str, default: int, max_value: int) -> int:
+    if value in {None, ""}:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be an integer.") from exc
+    if parsed <= 0:
+        raise ValueError(f"{field_name} must be positive.")
+    return min(parsed, max_value)
+
+
+def duckdb_table_exists(connection: Any, *, table_name: str) -> bool:
+    result = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = 'main' AND table_name = ?
+        """,
+        [table_name],
+    ).fetchone()
+    return bool(result and int(result[0]) > 0)
+
+
+def duckdb_connection(config: DashboardConfig, *, read_only: bool = True) -> Any:
+    duckdb = warehouse_load_duckdb.import_duckdb(repo_root=config.workspace_root)
+    if read_only and not config.quant_db_path.exists():
+        raise FileNotFoundError(f"DuckDB file does not exist: {config.quant_db_path}")
+    return duckdb.connect(str(config.quant_db_path), read_only=read_only)
+
+
+def query_duckdb_overview(config: DashboardConfig) -> dict[str, Any]:
+    overview: dict[str, Any] = {
+        "db_path": str(config.quant_db_path),
+        "db_exists": config.quant_db_path.exists(),
+        "duckdb_available": False,
+        "table_exists": False,
+        "total_rows": 0,
+        "versions": [],
+        "symbol_rows": [],
+        "symbols": [],
+        "intervals": [],
+        "charting_library": charting_library_status(),
+        "fetched_at": utc_now_iso(),
+    }
+
+    try:
+        connection = duckdb_connection(config, read_only=True)
+    except FileNotFoundError:
+        return overview
+    except RuntimeError as exc:
+        overview["error"] = str(exc)
+        return overview
+
+    overview["duckdb_available"] = True
+    try:
+        if not duckdb_table_exists(connection, table_name="market_ohlcv"):
+            return overview
+
+        overview["table_exists"] = True
+        total_rows = connection.execute("SELECT COUNT(*) FROM market_ohlcv").fetchone()
+        overview["total_rows"] = int(total_rows[0]) if total_rows is not None else 0
+
+        version_rows = connection.execute(
+            """
+            SELECT
+                data_version,
+                interval,
+                COUNT(*) AS row_count,
+                COUNT(DISTINCT symbol) AS symbol_count,
+                MIN(ts) AS first_ts,
+                MAX(ts) AS last_ts
+            FROM market_ohlcv
+            GROUP BY data_version, interval
+            ORDER BY data_version, interval
+            """
+        ).fetchall()
+        overview["versions"] = [
+            {
+                "data_version": str(row[0]),
+                "interval": str(row[1]),
+                "row_count": int(row[2]),
+                "symbol_count": int(row[3]),
+                "first_ts": (
+                    row[4].replace(tzinfo=UTC).isoformat().replace("+00:00", "Z")
+                    if row[4] is not None and getattr(row[4], "tzinfo", None) is None
+                    else row[4].astimezone(UTC).isoformat().replace("+00:00", "Z")
+                    if row[4] is not None
+                    else None
+                ),
+                "last_ts": (
+                    row[5].replace(tzinfo=UTC).isoformat().replace("+00:00", "Z")
+                    if row[5] is not None and getattr(row[5], "tzinfo", None) is None
+                    else row[5].astimezone(UTC).isoformat().replace("+00:00", "Z")
+                    if row[5] is not None
+                    else None
+                ),
+            }
+            for row in version_rows
+        ]
+
+        distinct_symbol_rows = connection.execute(
+            """
+            SELECT DISTINCT symbol
+            FROM market_ohlcv
+            ORDER BY symbol
+            """
+        ).fetchall()
+        interval_rows = connection.execute(
+            """
+            SELECT DISTINCT interval
+            FROM market_ohlcv
+            ORDER BY interval
+            """
+        ).fetchall()
+        symbol_detail_rows = connection.execute(
+            """
+            SELECT
+                data_version,
+                interval,
+                symbol,
+                MIN(exchange) AS exchange,
+                MIN(market_type) AS market_type,
+                COUNT(*) AS row_count,
+                MIN(ts) AS first_ts,
+                MAX(ts) AS last_ts
+            FROM market_ohlcv
+            GROUP BY data_version, interval, symbol
+            ORDER BY data_version, interval, symbol
+            """
+        ).fetchall()
+        overview["symbols"] = [str(row[0]) for row in distinct_symbol_rows]
+        overview["intervals"] = [str(row[0]) for row in interval_rows]
+        overview["symbol_rows"] = [
+            {
+                "data_version": str(row[0]),
+                "interval": str(row[1]),
+                "symbol": str(row[2]),
+                "exchange": str(row[3]),
+                "market_type": str(row[4]),
+                "row_count": int(row[5]),
+                "first_ts": (
+                    row[6].replace(tzinfo=UTC).isoformat().replace("+00:00", "Z")
+                    if row[6] is not None and getattr(row[6], "tzinfo", None) is None
+                    else row[6].astimezone(UTC).isoformat().replace("+00:00", "Z")
+                    if row[6] is not None
+                    else None
+                ),
+                "last_ts": (
+                    row[7].replace(tzinfo=UTC).isoformat().replace("+00:00", "Z")
+                    if row[7] is not None and getattr(row[7], "tzinfo", None) is None
+                    else row[7].astimezone(UTC).isoformat().replace("+00:00", "Z")
+                    if row[7] is not None
+                    else None
+                ),
+            }
+            for row in symbol_detail_rows
+        ]
+        return overview
+    finally:
+        connection.close()
+
+
+def query_duckdb_symbol_catalog(
+    config: DashboardConfig,
+    *,
+    data_version: str | None,
+    interval: str | None,
+) -> dict[str, Any]:
+    try:
+        connection = duckdb_connection(config, read_only=True)
+    except (FileNotFoundError, RuntimeError) as exc:
+        return {
+            "count": 0,
+            "symbols": [],
+            "data_version": data_version,
+            "interval": interval,
+            "error": str(exc),
+            "fetched_at": utc_now_iso(),
+        }
+
+    try:
+        if not duckdb_table_exists(connection, table_name="market_ohlcv"):
+            return {
+                "count": 0,
+                "symbols": [],
+                "data_version": data_version,
+                "interval": interval,
+                "fetched_at": utc_now_iso(),
+            }
+
+        conditions: list[str] = []
+        params: list[Any] = []
+        if data_version:
+            conditions.append("data_version = ?")
+            params.append(data_version)
+        if interval:
+            conditions.append("interval = ?")
+            params.append(interval)
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = connection.execute(
+            f"""
+            SELECT
+                symbol,
+                MIN(exchange) AS exchange,
+                MIN(market_type) AS market_type,
+                COUNT(*) AS row_count,
+                MIN(ts) AS first_ts,
+                MAX(ts) AS last_ts
+            FROM market_ohlcv
+            {where_clause}
+            GROUP BY symbol
+            ORDER BY symbol
+            """,
+            params,
+        ).fetchall()
+
+        symbols = []
+        for row in rows:
+            first_ts = row[4]
+            last_ts = row[5]
+            if first_ts is not None and getattr(first_ts, "tzinfo", None) is None:
+                first_ts = first_ts.replace(tzinfo=UTC)
+            if last_ts is not None and getattr(last_ts, "tzinfo", None) is None:
+                last_ts = last_ts.replace(tzinfo=UTC)
+            symbols.append(
+                {
+                    "symbol": str(row[0]),
+                    "exchange": str(row[1]),
+                    "market_type": str(row[2]),
+                    "row_count": int(row[3]),
+                    "first_ts": (
+                        first_ts.astimezone(UTC).isoformat().replace("+00:00", "Z")
+                        if first_ts is not None
+                        else None
+                    ),
+                    "last_ts": (
+                        last_ts.astimezone(UTC).isoformat().replace("+00:00", "Z")
+                        if last_ts is not None
+                        else None
+                    ),
+                }
+            )
+
+        return {
+            "count": len(symbols),
+            "symbols": symbols,
+            "data_version": data_version,
+            "interval": interval,
+            "fetched_at": utc_now_iso(),
+        }
+    finally:
+        connection.close()
+
+
+def query_market_bars(
+    config: DashboardConfig,
+    *,
+    symbol: str,
+    interval: str,
+    data_version: str,
+    from_ts: int | None,
+    to_ts: int | None,
+    limit: int,
+) -> dict[str, Any]:
+    connection = duckdb_connection(config, read_only=True)
+    try:
+        if not duckdb_table_exists(connection, table_name="market_ohlcv"):
+            raise ValueError("market_ohlcv table does not exist.")
+
+        conditions = [
+            "symbol = ?",
+            "interval = ?",
+            "data_version = ?",
+        ]
+        params: list[Any] = [symbol, interval, data_version]
+        if from_ts is not None:
+            conditions.append("ts >= ?")
+            params.append(timestamp_seconds_to_datetime(from_ts))
+        if to_ts is not None:
+            conditions.append("ts <= ?")
+            params.append(timestamp_seconds_to_datetime(to_ts))
+
+        rows = connection.execute(
+            f"""
+            SELECT ts, open, high, low, close, volume
+            FROM market_ohlcv
+            WHERE {' AND '.join(conditions)}
+            ORDER BY ts
+            LIMIT ?
+            """,
+            params + [limit],
+        ).fetchall()
+
+        bars: list[dict[str, Any]] = []
+        for row in rows:
+            ts_value = row[0]
+            if getattr(ts_value, "tzinfo", None) is None:
+                ts_value = ts_value.replace(tzinfo=UTC)
+            bars.append(
+                {
+                    "time": int(ts_value.timestamp() * 1000),
+                    "open": float(row[1]),
+                    "high": float(row[2]),
+                    "low": float(row[3]),
+                    "close": float(row[4]),
+                    "volume": float(row[5]),
+                }
+            )
+
+        return {
+            "symbol": symbol,
+            "interval": interval,
+            "data_version": data_version,
+            "count": len(bars),
+            "bars": bars,
+            "fetched_at": utc_now_iso(),
+        }
+    finally:
+        connection.close()
+
+
 def next_relevant_line(lines: list[str], start_index: int) -> tuple[str | None, int | None]:
     for line in lines[start_index:]:
         stripped = line.strip()
@@ -1619,6 +2213,272 @@ class DownloadJobRegistry:
             job.status = "succeeded" if error_message is None and not failure_dicts else "failed"
 
 
+class NormalizeJobConflictError(RuntimeError):
+    """Raised when a conflicting normalize job already exists."""
+
+
+class NormalizeJobRegistry:
+    def __init__(self, config: DashboardConfig) -> None:
+        self._config = config
+        self._jobs: dict[str, NormalizeJob] = {}
+        self._lock = threading.Lock()
+
+    def create_job(self, request: NormalizeRequest) -> NormalizeJob:
+        with self._lock:
+            for existing in self._jobs.values():
+                if (
+                    existing.data_version == request.data_version
+                    and existing.status in {"queued", "running"}
+                ):
+                    raise NormalizeJobConflictError(
+                        f"{request.data_version} already has an active normalize job."
+                    )
+
+            job = NormalizeJob(
+                job_id=uuid.uuid4().hex[:12],
+                source=request.source,
+                symbols=list(request.symbols),
+                intervals=list(request.intervals),
+                data_version=request.data_version,
+                output_format=request.output_format,
+                status="queued",
+                created_at=utc_now_iso(),
+            )
+            self._jobs[job.job_id] = job
+
+        thread = threading.Thread(target=self._run_job, args=(job.job_id,), daemon=True)
+        thread.start()
+        return self._clone_job(job)
+
+    def list_jobs(self) -> list[NormalizeJob]:
+        with self._lock:
+            jobs = sorted(
+                self._jobs.values(),
+                key=lambda item: (item.created_at, item.job_id),
+                reverse=True,
+            )
+            return [self._clone_job(job) for job in jobs]
+
+    @staticmethod
+    def _clone_job(job: NormalizeJob) -> NormalizeJob:
+        return NormalizeJob(**asdict(job))
+
+    def _run_job(self, job_id: str) -> None:
+        with self._lock:
+            job = self._jobs[job_id]
+            job.status = "running"
+            job.started_at = utc_now_iso()
+            request = NormalizeRequest(
+                source=job.source,
+                symbols=list(job.symbols),
+                intervals=list(job.intervals),
+                data_version=job.data_version,
+                output_format=job.output_format,
+            )
+
+        manifest_path: Path | None = None
+        interval_outputs: list[dict[str, Any]] = []
+        raw_file_count = 0
+        error_message: str | None = None
+
+        try:
+            input_root = resolve_source_raw_root(self._config, request.source)
+            output_root = self._config.normalized_root
+            job.raw_root = str(input_root)
+            job.output_root = str(output_root)
+            created_at = utc_now_iso()
+            symbols = set(request.symbols) if request.symbols else None
+            intervals = set(request.intervals) if request.intervals else None
+            raw_files = normalized_market_ohlcv.discover_raw_files(
+                input_root,
+                symbols=symbols,
+                intervals=intervals,
+            )
+            if not raw_files:
+                raise RuntimeError(f"No raw files found under {input_root}.")
+
+            raw_file_count = len(raw_files)
+            resolved_output_format = normalized_market_ohlcv.resolve_output_format(request.output_format)
+            by_interval, duplicate_counter = normalized_market_ohlcv.load_and_dedupe_records(
+                raw_files,
+                data_version=request.data_version,
+                created_at=created_at,
+                repo_root=self._config.workspace_root,
+            )
+
+            raw_file_count_by_interval: dict[str, int] = {}
+            for path in raw_files:
+                interval = path.parent.name
+                raw_file_count_by_interval[interval] = raw_file_count_by_interval.get(interval, 0) + 1
+
+            for interval in sorted(by_interval):
+                records = normalized_market_ohlcv.sort_records(list(by_interval[interval].values()))
+                output_path = normalized_market_ohlcv.write_interval_output(
+                    output_root,
+                    data_version=request.data_version,
+                    interval=interval,
+                    records=records,
+                    output_format=resolved_output_format,
+                )
+                interval_outputs.append(
+                    {
+                        "interval": interval,
+                        "output_path": str(output_path),
+                        "row_count": len(records),
+                        "source_file_count": raw_file_count_by_interval.get(interval, 0),
+                        "duplicate_rows_removed": duplicate_counter.get(interval, 0),
+                    }
+                )
+
+            manifest_path = output_root / request.data_version / "normalize_manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "data_version": request.data_version,
+                        "input_root": str(input_root),
+                        "output_root": str(output_root),
+                        "output_format": resolved_output_format,
+                        "created_at": created_at,
+                        "filters": {
+                            "source": request.source,
+                            "symbols": sorted(symbols) if symbols is not None else None,
+                            "intervals": sorted(intervals) if intervals is not None else None,
+                        },
+                        "raw_file_count": raw_file_count,
+                        "interval_outputs": interval_outputs,
+                    },
+                    ensure_ascii=True,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            error_message = str(exc)
+
+        with self._lock:
+            job = self._jobs[job_id]
+            job.finished_at = utc_now_iso()
+            job.manifest_path = str(manifest_path) if manifest_path is not None else None
+            job.raw_file_count = raw_file_count
+            job.interval_outputs = interval_outputs
+            job.error = error_message
+            job.status = "succeeded" if error_message is None else "failed"
+
+
+class DuckDBLoadJobConflictError(RuntimeError):
+    """Raised when a conflicting DuckDB load job already exists."""
+
+
+class DuckDBLoadJobRegistry:
+    def __init__(self, config: DashboardConfig) -> None:
+        self._config = config
+        self._jobs: dict[str, DuckDBLoadJob] = {}
+        self._lock = threading.Lock()
+
+    def create_job(self, request: DuckDBLoadRequest) -> DuckDBLoadJob:
+        with self._lock:
+            for existing in self._jobs.values():
+                if (
+                    existing.data_version == request.data_version
+                    and existing.status in {"queued", "running"}
+                ):
+                    raise DuckDBLoadJobConflictError(
+                        f"{request.data_version} already has an active DuckDB load job."
+                    )
+
+            job = DuckDBLoadJob(
+                job_id=uuid.uuid4().hex[:12],
+                data_version=request.data_version,
+                intervals=list(request.intervals) if request.intervals is not None else None,
+                status="queued",
+                created_at=utc_now_iso(),
+                db_path=str(self._config.quant_db_path),
+            )
+            self._jobs[job.job_id] = job
+
+        thread = threading.Thread(target=self._run_job, args=(job.job_id,), daemon=True)
+        thread.start()
+        return self._clone_job(job)
+
+    def list_jobs(self) -> list[DuckDBLoadJob]:
+        with self._lock:
+            jobs = sorted(
+                self._jobs.values(),
+                key=lambda item: (item.created_at, item.job_id),
+                reverse=True,
+            )
+            return [self._clone_job(job) for job in jobs]
+
+    @staticmethod
+    def _clone_job(job: DuckDBLoadJob) -> DuckDBLoadJob:
+        return DuckDBLoadJob(**asdict(job))
+
+    def _run_job(self, job_id: str) -> None:
+        with self._lock:
+            job = self._jobs[job_id]
+            job.status = "running"
+            job.started_at = utc_now_iso()
+            request = DuckDBLoadRequest(
+                data_version=job.data_version,
+                intervals=list(job.intervals) if job.intervals is not None else None,
+            )
+
+        loaded_files: list[dict[str, Any]] = []
+        row_count: int | None = None
+        error_message: str | None = None
+
+        try:
+            duckdb = warehouse_load_duckdb.import_duckdb(repo_root=self._config.workspace_root)
+            self._config.quant_db_path.parent.mkdir(parents=True, exist_ok=True)
+            init_sql_path = DEFAULT_INIT_SQL_PATH.expanduser().resolve()
+            if not init_sql_path.exists():
+                raise RuntimeError(f"Init SQL not found: {init_sql_path}")
+
+            connection = duckdb.connect(str(self._config.quant_db_path))
+            try:
+                warehouse_load_duckdb.initialize_database(
+                    connection,
+                    init_sql_path=init_sql_path,
+                    repo_root=self._config.workspace_root,
+                )
+                normalized_files = warehouse_load_duckdb.discover_normalized_files(
+                    self._config.normalized_root,
+                    data_version=request.data_version,
+                    intervals=set(request.intervals) if request.intervals is not None else None,
+                )
+                if not normalized_files:
+                    raise RuntimeError(
+                        f"No normalized files found for data_version={request.data_version}."
+                    )
+                for normalized_file in normalized_files:
+                    summary = warehouse_load_duckdb.load_normalized_file(
+                        connection,
+                        normalized_file,
+                        data_version=request.data_version,
+                        repo_root=self._config.workspace_root,
+                    )
+                    loaded_files.append(asdict(summary))
+
+                result = connection.execute(
+                    "SELECT COUNT(*) FROM market_ohlcv WHERE data_version = ?",
+                    [request.data_version],
+                ).fetchone()
+                row_count = int(result[0]) if result is not None else 0
+            finally:
+                connection.close()
+        except Exception as exc:
+            error_message = str(exc)
+
+        with self._lock:
+            job = self._jobs[job_id]
+            job.finished_at = utc_now_iso()
+            job.loaded_files = loaded_files
+            job.market_ohlcv_rows_for_data_version = row_count
+            job.error = error_message
+            job.status = "succeeded" if error_message is None else "failed"
+
+
 class PairAdminHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -1628,6 +2488,8 @@ class PairAdminHTTPServer(ThreadingHTTPServer):
         super().__init__(server_address, PairAdminHandler)
         self.config = config
         self.download_jobs = DownloadJobRegistry(config=config)
+        self.normalize_jobs = NormalizeJobRegistry(config=config)
+        self.duckdb_load_jobs = DuckDBLoadJobRegistry(config=config)
 
 
 class PairAdminHandler(BaseHTTPRequestHandler):
@@ -1640,6 +2502,9 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             return
         if parsed.path in {"/icon.svg", "/favicon.svg", "/favicon.ico"}:
             self.respond_svg(cached_icon_svg(), cache_control="public, max-age=3600")
+            return
+        if parsed.path.startswith("/charting_library/"):
+            self.handle_charting_library_file(parsed.path)
             return
         if parsed.path.startswith("/currency-icons/"):
             self.handle_currency_icon_file(parsed.path)
@@ -1668,6 +2533,24 @@ class PairAdminHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/download-jobs":
             self.handle_download_jobs()
             return
+        if parsed.path == "/api/normalized-datasets":
+            self.handle_normalized_datasets()
+            return
+        if parsed.path == "/api/normalize-jobs":
+            self.handle_normalize_jobs()
+            return
+        if parsed.path == "/api/duckdb-status":
+            self.handle_duckdb_status()
+            return
+        if parsed.path == "/api/duckdb-symbols":
+            self.handle_duckdb_symbols(parsed.query)
+            return
+        if parsed.path == "/api/duckdb-load-jobs":
+            self.handle_duckdb_load_jobs()
+            return
+        if parsed.path == "/api/chart-bars":
+            self.handle_chart_bars(parsed.query)
+            return
         self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:  # noqa: N802
@@ -1680,6 +2563,12 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/currency-icons":
             self.handle_upload_currency_icon()
+            return
+        if parsed.path == "/api/normalize":
+            self.handle_normalize()
+            return
+        if parsed.path == "/api/load-duckdb":
+            self.handle_load_duckdb()
             return
         self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
 
@@ -1848,6 +2737,11 @@ class PairAdminHandler(BaseHTTPRequestHandler):
                 "log_count": log_count,
                 "local_trading_pair_count": len(load_local_trading_pairs(self.server.config)),
                 "download_job_count": len(self.server.download_jobs.list_jobs()),
+                "normalize_job_count": len(self.server.normalize_jobs.list_jobs()),
+                "duckdb_load_job_count": len(self.server.duckdb_load_jobs.list_jobs()),
+                "charting_library_root": str(CHARTING_LIBRARY_STATIC_ROOT),
+                "charting_library_bundle_path": str(CHARTING_LIBRARY_BUNDLE_PATH),
+                "charting_library_bundle_exists": CHARTING_LIBRARY_BUNDLE_PATH.is_file(),
                 "fetched_at": utc_now_iso(),
             }
         )
@@ -1894,6 +2788,82 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             }
         )
 
+    def handle_normalized_datasets(self) -> None:
+        self.respond_json(discover_normalized_datasets(self.server.config))
+
+    def handle_normalize_jobs(self) -> None:
+        jobs = self.server.normalize_jobs.list_jobs()
+        self.respond_json(
+            {
+                "count": len(jobs),
+                "jobs": [asdict(job) for job in jobs],
+                "fetched_at": utc_now_iso(),
+            }
+        )
+
+    def handle_duckdb_status(self) -> None:
+        self.respond_json(query_duckdb_overview(self.server.config))
+
+    def handle_duckdb_symbols(self, query: str) -> None:
+        params = parse_qs(query)
+        data_version = params.get("data_version", [None])[0]
+        interval = params.get("interval", [None])[0]
+        payload = query_duckdb_symbol_catalog(
+            self.server.config,
+            data_version=str(data_version).strip() if data_version else None,
+            interval=str(interval).strip() if interval else None,
+        )
+        self.respond_json(payload)
+
+    def handle_duckdb_load_jobs(self) -> None:
+        jobs = self.server.duckdb_load_jobs.list_jobs()
+        self.respond_json(
+            {
+                "count": len(jobs),
+                "jobs": [asdict(job) for job in jobs],
+                "fetched_at": utc_now_iso(),
+            }
+        )
+
+    def handle_chart_bars(self, query: str) -> None:
+        params = parse_qs(query)
+        symbol = str(params.get("symbol", [""])[0]).strip().upper()
+        interval = str(params.get("interval", [""])[0]).strip().lower()
+        data_version = str(params.get("data_version", [""])[0]).strip()
+        if not symbol or not interval or not data_version:
+            self.respond_json(
+                {"error": "symbol, interval and data_version are required."},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        try:
+            from_ts = None
+            if params.get("from"):
+                from_ts = int(params["from"][0])
+            to_ts = None
+            if params.get("to"):
+                to_ts = int(params["to"][0])
+            limit = parse_positive_int(
+                params.get("limit", [None])[0],
+                field_name="limit",
+                default=5000,
+                max_value=50000,
+            )
+            payload = query_market_bars(
+                self.server.config,
+                symbol=symbol,
+                interval=interval,
+                data_version=data_version,
+                from_ts=from_ts,
+                to_ts=to_ts,
+                limit=limit,
+            )
+        except (ValueError, RuntimeError, FileNotFoundError) as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self.respond_json(payload)
+
     def handle_download_klines(self) -> None:
         try:
             payload = self.read_json_body()
@@ -1912,6 +2882,69 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             )
             return
         self.respond_json({"message": "Download job created.", "job": asdict(job)}, status=HTTPStatus.ACCEPTED)
+
+    def handle_normalize(self) -> None:
+        try:
+            payload = self.read_json_body()
+            request = parse_normalize_request_payload(payload)
+            job = self.server.normalize_jobs.create_job(request)
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        except NormalizeJobConflictError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+            return
+        except Exception as exc:
+            self.respond_json(
+                {"error": f"Failed to create normalize job: {exc}"},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+        self.respond_json({"message": "Normalize job created.", "job": asdict(job)}, status=HTTPStatus.ACCEPTED)
+
+    def handle_load_duckdb(self) -> None:
+        try:
+            payload = self.read_json_body()
+            request = parse_duckdb_load_request_payload(payload)
+            job = self.server.duckdb_load_jobs.create_job(request)
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        except DuckDBLoadJobConflictError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+            return
+        except Exception as exc:
+            self.respond_json(
+                {"error": f"Failed to create DuckDB load job: {exc}"},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+        self.respond_json({"message": "DuckDB load job created.", "job": asdict(job)}, status=HTTPStatus.ACCEPTED)
+
+    def handle_charting_library_file(self, raw_path: str) -> None:
+        relative_path = raw_path.removeprefix("/charting_library/").strip("/")
+        if not relative_path:
+            self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+            return
+
+        requested_path = (CHARTING_LIBRARY_STATIC_ROOT / relative_path).resolve()
+        try:
+            requested_path.relative_to(CHARTING_LIBRARY_STATIC_ROOT.resolve())
+        except ValueError:
+            self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+            return
+
+        if not requested_path.is_file():
+            self.respond_json(
+                {
+                    "error": "Charting Library bundle not found.",
+                    "bundle_path": str(CHARTING_LIBRARY_BUNDLE_PATH),
+                },
+                status=HTTPStatus.NOT_FOUND,
+            )
+            return
+
+        self.respond_file(requested_path, cache_control="public, max-age=3600")
 
     def read_json_body(self) -> Any:
         content_length_raw = self.headers.get("Content-Length")

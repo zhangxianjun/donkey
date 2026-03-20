@@ -33,5 +33,28 @@ signal:
   breakout_window: 20
   atr_multiplier: 3.0
 
+execution:
+  order_type: next_bar_open
+  rebalance_frequency: daily
+  slippage_bps: 5
+  fee_bps: 10
+
+risk:
+  position_sizing: equal_weight_active
+  max_position_per_symbol: 0.5
+  max_total_exposure: 1.0
+  max_active_positions: 2
+  allow_partial_cash: true
+
+backtest:
+  engine: native
+  initial_capital: 100000.0
+  start_date: "2018-01-01"
+  end_date: "2025-12-31"
+  benchmark_symbol: BTCUSDT
+
 artifacts:
-  signal_path: data/signals/atr_trailing_v1/{symbol}_1d_signal.parquet
+  signal_path: data/signals/atr_trailing_v1/{symbol}_1d_signal.jsonl
+  trades_path: data/backtests/atr_trailing_v1/trades.jsonl
+  equity_path: data/backtests/atr_trailing_v1/portfolio_equity.jsonl
+  summary_path: data/backtests/atr_trailing_v1/summary.json

@@ -16,12 +16,19 @@ donkey/
 ├── Dockerfile
 ├── README.md
 ├── PROJECT_STRUCTURE.md
+├── requirements.txt
 ├── config/
 │   ├── factors/
 │   │   └── daily_core_v1.yaml
 │   └── strategies/
 │       ├── atr_trailing_v1.yaml
 │       └── vol_breakout_v1.yaml
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── EXAMPLES.md
+│   ├── HOW_TO_USE.md
+│   └── screenshots/
+│       └── README.md
 ├── data/
 │   ├── raw/
 │   │   └── binance/
@@ -85,7 +92,13 @@ donkey/
 
 `README.md`
 
-- 项目总说明，记录架构设计、阶段规划和运行方式。
+- 项目首页说明。
+- 当前用于表达产品定位、平台亮点、快速开始、文档导航和路线图。
+
+`requirements.txt`
+
+- 最小 Python 依赖入口。
+- 当前包含 `duckdb` 和 `pyarrow`。
 
 `.dockerignore`
 
@@ -100,6 +113,14 @@ donkey/
 `PROJECT_STRUCTURE.md`
 
 - 当前文件；用于维护仓库目录结构说明。
+
+`docs/`
+
+- 文档目录。
+- `docs/HOW_TO_USE.md` 提供使用教程。
+- `docs/ARCHITECTURE.md` 说明平台架构和分层。
+- `docs/EXAMPLES.md` 提供常见命令和接入示例。
+- `docs/screenshots/` 预留项目截图资源。
 
 `config/`
 
@@ -155,7 +176,7 @@ donkey/
 `tests/`
 
 - 单元测试目录。
-- 当前覆盖 ingestion、normalize、warehouse 三块。
+- 当前覆盖 ingestion、normalize、warehouse、admin 和 strategy loader。
 
 ## 3. 当前已存在的关键文件
 
@@ -165,6 +186,14 @@ donkey/
 - `Dockerfile`
 - `README.md`
 - `PROJECT_STRUCTURE.md`
+- `requirements.txt`
+
+### 文档
+
+- `docs/ARCHITECTURE.md`
+- `docs/EXAMPLES.md`
+- `docs/HOW_TO_USE.md`
+- `docs/screenshots/README.md`
 
 ### 配置
 
@@ -280,8 +309,19 @@ donkey/
 - 读取 `data/normalized/<data_version>/...`
 - 写入 `db/quant.duckdb` 的 `market_ohlcv`
 
-第四步：后续待接入
+第四步：策略信号生成
+
+- `src/strategies/run.py`
+- 读取 `config/strategies/*.yaml` 和 normalized 数据
+- 输出到 `data/signals/...`
+
+第五步：后台查看与产物聚合
+
+- `src/admin/pairs_dashboard.py`
+- 聚合展示数据源、本地数据、策略信息和回测产物状态
+
+第六步：后续继续增强
 
 - 因子计算
-- 信号生成
-- 回测和实验登记
+- 正式 backtest runner
+- experiment tracking

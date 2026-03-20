@@ -1,79 +1,90 @@
 # donkey
 
-`donkey` 是一个面向量化研究与运营的本地控制台，用来把多源现货行情、下载任务、策略配置和回测产物放到同一个工作区里管理。
+> 本地优先的加密货币回测平台，用统一工作区管理行情、策略、信号与回测产物。
 
-它当前更偏向研究基础设施，而不是生产级实盘系统：重点解决“数据怎么采、怎么落、怎么标准化、怎么查看、怎么把策略与产物串起来”的问题。对于个人研究者、小团队内网工具、或者准备继续往因子库/回测引擎/实验管理扩展的项目，这个仓库已经是一套能继续长出来的骨架。
+`donkey` 的目标，是把原本分散在脚本、目录、数据库和临时笔记里的研究流程，整理成一套可复现、可追踪、可持续迭代的加密货币回测平台。
 
-## 项目定位
+你可以把它理解为一套面向研究与回测的工作台：
 
-- 面向本地量化研究工作流，而不是交易所托管服务
-- 面向现货市场数据管理、策略配置管理和回测产物展示
-- 优先保证目录结构清晰、产物可追溯、流程可复现
-- 后台采用 Python 标准库 HTTP Server，依赖轻，适合本地启动和二次改造
+- 前面接多源现货市场
+- 中间接数据采集、标准化、策略配置与信号生成
+- 后面接 DuckDB、回测产物和管理后台
 
-## 当前能力
+当前版本已经具备“平台骨架”所需的关键能力，适合个人研究者、小团队、以及准备继续扩展因子层和回测引擎的项目。
 
-- 多数据源交易对浏览：支持 Binance、OKX、Bybit、Hyperliquid 现货交易对浏览
-- 本地研究清单维护：将交易对加入本地交易列表，作为后续研究对象
-- Binance K 线采集：支持按 symbol / interval 下载 raw 数据
-- 断点续传与失败重试：下载任务保留 checkpoint、manifest 和失败记录
-- 标准化数据层：将 raw `jsonl` 统一为 `market_ohlcv`
-- 数据版本管理：标准化数据按 `data_version` 组织
-- DuckDB 装载：将 normalized 数据导入 `db/quant.duckdb`
-- 策略配置与热加载：支持 YAML 配置 + Python 模块策略
-- 信号生成：从 normalized 数据读取并生成策略信号文件
-- 策略/回测产物展示：自动读取 `summary / trades / equity` 是否存在及核心指标
-- 本地管理后台：统一查看数据源、本地数据、策略、回测记录、系统设置
-- 货币图标管理：支持本地图标目录与 API 上传
+## 它解决什么问题
 
-## 架构概览
+做加密货币回测时，最容易失控的不是策略本身，而是下面这些基础问题：
 
-```text
-交易所 API
-  -> data/raw/<source>/spot/<symbol>/<interval>/
-  -> data/normalized/<data_version>/market_ohlcv_<interval>.jsonl|parquet
-  -> db/quant.duckdb
-  -> config/strategies/*.yaml
-  -> data/signals/*
-  -> data/backtests/*
-  -> src/admin/pairs_dashboard.py
-```
+- 交易对从哪里来，研究 Universe 怎么维护
+- 原始行情怎么保存，失败任务怎么续跑
+- 标准化数据怎么做版本管理
+- 策略配置、代码模块和信号输出怎么关联
+- 回测产物存在哪，怎么统一查看
+- 工作区里哪些目录是数据、哪些是策略、哪些是产物
 
-核心模块：
+`donkey` 把这些问题收敛成统一目录结构、统一命令入口和统一后台视图。
 
-- `src/ingestion/binance_ohlcv.py`
-  负责 Binance 现货 K 线采集、重试、checkpoint 和 manifest。
-- `src/normalize/market_ohlcv.py`
-  负责把 raw 数据统一成标准 `market_ohlcv` 结构。
-- `src/warehouse/load_duckdb.py`
-  负责把 normalized 数据按版本装载进 DuckDB。
-- `src/strategies/run.py`
-  负责加载策略配置与 Python 模块，生成信号产物。
-- `src/admin/pairs_dashboard.py`
-  负责本地管理后台和相关 API。
+## 平台亮点
 
-更完整的目录说明见 [PROJECT_STRUCTURE.md](./PROJECT_STRUCTURE.md)。
+- 本地优先
+  不依赖重型 Web 框架，直接用 Python 标准库 HTTP Server 启动研究后台。
+- 数据可追溯
+  raw / normalized / warehouse 三层明确分离，下载 manifest、checkpoint、data version 都有落盘。
+- 回测工作区一体化
+  数据源、下载任务、本地数据、策略、回测记录放在同一个控制台里管理。
+- 策略配置与代码解耦
+  用 YAML 描述策略元数据、Universe、产物路径，用 Python 模块实现策略逻辑。
+- 热加载友好
+  策略模块支持 reload，适合本地快速迭代。
+- 对接成本低
+  当前平台已经能接收并展示 `summary / trades / equity` 产物，你可以逐步接入自己的回测执行器，而不需要一次重写整套系统。
 
-## 适合谁用
+## 当前功能
 
-- 想做自己的量化研究工作台，而不是只写一次性脚本的人
-- 需要把“下载数据、整理数据、配策略、看回测产物”串成一条线的人
-- 需要一个容易改、容易加功能、容易本地部署的 Python 项目骨架的人
+- 多数据源交易对浏览
+  支持 Binance、OKX、Bybit、Hyperliquid 现货交易对浏览。
+- 本地研究清单维护
+  把交易对加入本地研究列表，作为后续下载和回测对象。
+- Binance 现货 K 线采集
+  支持按 symbol / interval 批量下载 raw 数据。
+- 断点续传与失败恢复
+  下载任务保留 checkpoint、manifest 和失败记录。
+- 标准化行情层
+  将 raw `jsonl` 统一为 `market_ohlcv` 标准结构。
+- DuckDB 数据装载
+  将 normalized 数据按 `data_version` 装载到 `db/quant.duckdb`。
+- 策略配置与热加载
+  支持 YAML 策略定义和 Python 模块热加载。
+- 信号生成
+  根据 normalized 数据和策略配置生成信号产物。
+- 回测产物展示
+  自动识别 `summary / trades / equity` 文件是否存在，并在后台展示状态和基础指标。
+- 系统管理后台
+  统一查看数据源、本地数据、策略、回测记录、系统设置和货币图标资源。
 
-## 不是什么
+## 平台定位
 
-- 不是成熟的生产级交易执行系统
-- 不是完整的一站式回测平台
-- 不是已经接好所有交易所下载链路的多源数据平台
+`donkey` 现在应该被理解成：
 
-目前多源支持主要体现在“交易对浏览和本地管理”层面；实际 raw K 线下载链路目前已落地的是 Binance。
+- 一个加密货币回测平台的工作区与控制台
+- 一个可继续扩展的研究基础设施底座
+- 一个已经具备数据层、策略层、产物层组织能力的本地产品
 
-## 运行环境
+它现在还不是：
 
-- Python `3.12+` 推荐
-- macOS / Linux 均可，本地开发最方便
-- 可选 Docker 运行
-- `pyarrow` 用于 Parquet 读写；没有它也可以走 `jsonl`
+- 完整的生产级实盘交易系统
+- 已经内置完整 Portfolio / Order / Fill 回测撮合器的平台
+- 覆盖所有交易所原始下载链路的多源数据中台
+
+这个边界是刻意保留的。当前版本优先把“研究平台的骨架”搭稳，再往回测执行、实验管理和策略评估继续加。
+
+## 适合谁
+
+- 想把自己的量化实验脚本升级成长期可维护项目的人
+- 想做本地化、可控、可追踪的加密货币回测工作台的人
+- 有自己的回测逻辑，想接入统一数据层和展示层的人
+- 需要给团队一个能快速讲清楚结构、流程和目录约定的仓库的人
 
 ## 快速开始
 
@@ -86,10 +97,10 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 ```
 
-### 2. 启动管理后台
+### 2. 启动后台
 
 ```bash
-python3 -m src.admin.pairs_dashboard --host 127.0.0.1 --port 8866
+./.venv/bin/python -m src.admin.pairs_dashboard --host 127.0.0.1 --port 8866
 ```
 
 浏览器打开：
@@ -98,28 +109,19 @@ python3 -m src.admin.pairs_dashboard --host 127.0.0.1 --port 8866
 http://127.0.0.1:8866
 ```
 
-### 3. 下载 Binance 原始 K 线
+### 3. 跑通一条最小回测链路
+
+下载 raw 数据：
 
 ```bash
 python3 -m src.ingestion.binance_ohlcv \
   --symbols BTCUSDT ETHUSDT \
-  --intervals 1d 4h \
+  --intervals 1d \
   --start-date 2024-01-01 \
   --end-date 2025-01-01
 ```
 
-如果想批量发现 Binance 现货交易对再抓取：
-
-```bash
-python3 -m src.ingestion.binance_ohlcv \
-  --all-spot-symbols \
-  --quote-assets USDT \
-  --intervals 1d \
-  --max-symbols 50 \
-  --start-from-listing
-```
-
-### 4. 标准化 raw 数据
+标准化：
 
 ```bash
 python3 -m src.normalize.market_ohlcv \
@@ -129,9 +131,7 @@ python3 -m src.normalize.market_ohlcv \
   --output-format parquet
 ```
 
-如果本地没有 `pyarrow`，把 `--output-format` 改成 `jsonl` 即可。
-
-### 5. 装载到 DuckDB
+装载 DuckDB：
 
 ```bash
 python3 -m src.warehouse.load_duckdb \
@@ -140,7 +140,7 @@ python3 -m src.warehouse.load_duckdb \
   --db-path db/quant.duckdb
 ```
 
-### 6. 生成策略信号
+生成策略信号：
 
 ```bash
 python3 -m src.strategies.run \
@@ -149,138 +149,106 @@ python3 -m src.strategies.run \
   --symbols BTCUSDT ETHUSDT
 ```
 
-支持 `--watch` 模式，在策略 YAML 或策略模块变化时自动重跑：
+更详细的操作流程见：
 
-```bash
-python3 -m src.strategies.run \
-  --strategy config/strategies/atr_trailing_v1.yaml \
-  --input data/normalized/v1/market_ohlcv_1d.parquet \
-  --watch
+- [How To Use](./docs/HOW_TO_USE.md)
+- [Examples](./docs/EXAMPLES.md)
+
+## 文档导航
+
+- [How To Use](./docs/HOW_TO_USE.md)
+  从安装到跑通一条研究/回测链路的实操教程。
+- [Architecture](./docs/ARCHITECTURE.md)
+  平台分层、数据流、模块职责和扩展点说明。
+- [Examples](./docs/EXAMPLES.md)
+  内置策略、常见命令和产物落盘示例。
+- [Project Structure](./PROJECT_STRUCTURE.md)
+  仓库目录结构与职责说明。
+
+## 架构总览
+
+```mermaid
+flowchart LR
+    A[Exchange APIs] --> B[Raw Layer<br/>data/raw]
+    B --> C[Normalize Layer<br/>market_ohlcv]
+    C --> D[Warehouse<br/>DuckDB]
+    C --> E[Strategy Loader<br/>YAML + Python Module]
+    E --> F[Signal Outputs<br/>data/signals]
+    F --> G[Backtest Artifacts<br/>summary / trades / equity]
+    B --> H[Admin Console]
+    C --> H
+    D --> H
+    E --> H
+    G --> H
 ```
 
-## 一个典型工作流
+当前核心模块：
 
-1. 在后台查看远端交易对并加入本地研究清单
-2. 下载 Binance raw K 线到 `data/raw/binance/spot`
-3. 标准化为 `market_ohlcv`
-4. 选择性装载到 DuckDB
-5. 用 YAML + Python 模块组织策略
-6. 生成信号产物、写入 `data/signals`
-7. 将回测摘要和产物落到 `data/backtests`
-8. 在管理后台查看策略和回测记录
+- `src/ingestion/binance_ohlcv.py`
+  Binance raw K 线下载器，负责 symbol discovery、重试、checkpoint、manifest。
+- `src/normalize/market_ohlcv.py`
+  标准化层，把 raw 行情整理成统一字段模型。
+- `src/warehouse/load_duckdb.py`
+  装载层，把 normalized 数据按版本导入 DuckDB。
+- `src/strategies/run.py`
+  策略信号层，读取策略配置与策略模块，输出信号文件。
+- `src/admin/pairs_dashboard.py`
+  管理后台，负责浏览数据源、本地数据、策略、回测记录与系统信息。
 
-## 页面导览
+## 产品页面
 
-你提供的截图对应当前版本已经实现的这些页面：
+当前后台已经形成完整的产品页面结构：
 
 - 首页
-  研究控制台总览，展示接入数据源数量、本地交易对、本地数据数量、下载任务数、策略数、回测记录数，以及当前工作区关键信息。
+  展示数据源总览、本地交易对、本地数据量、下载任务数、策略数、回测记录数和系统关键信息。
 - 数据源
-  浏览 Binance / OKX / Bybit / HL 的现货交易对，支持搜索、按报价资产过滤、查看状态，并把交易对加入本地研究清单。
+  浏览远端交易对，筛选交易状态与报价资产，并加入本地研究清单。
 - 本地数据
-  查看 `data/raw/<source>/spot` 下已存在的本地数据，按 source / symbol / interval 聚合展示，同时显示任务状态与更新时间。
+  查看 `data/raw/<source>/spot` 下已存在的数据文件与更新时间。
 - 策略展示
   自动扫描 `config/strategies/*.yaml`，展示策略描述、Universe、回测区间和产物路径。
 - 回测记录
-  读取 `summary / trades / equity` 的存在情况，并汇总状态与基础指标。
+  展示 `summary / trades / equity` 的存在状态和指标摘要。
 - 系统设置
-  展示工作区路径、数据库路径、默认报价资产、日志位置、图标资源等运行信息。
+  展示工作区路径、数据库路径、日志路径、图标资源、默认过滤设置等系统信息。
 
-如果你准备把截图正式放进仓库，建议存到 `docs/screenshots/`，例如：
+如果你要在 GitHub 首页展示截图，推荐放到 `docs/screenshots/`。
 
-- `docs/screenshots/overview.png`
-- `docs/screenshots/source-pairs.png`
-- `docs/screenshots/local-data.png`
-- `docs/screenshots/strategies.png`
-- `docs/screenshots/backtests.png`
+## 为什么这个仓库值得继续做
 
-这样后面就可以直接在 README 里内嵌图片。
+相比“几个脚本 + 几个数据目录”的实验项目，`donkey` 已经有了明显的平台化特征：
 
-## 当前内置示例
+- 有明确的数据分层和目录契约
+- 有统一后台，而不只是 CLI
+- 有策略配置层，而不只是硬编码逻辑
+- 有回测产物展示层，而不只是临时文件
+- 有 DuckDB 仓库层，方便后续接因子、实验和评估
 
-- `config/strategies/atr_trailing_v1.yaml`
-  ATR 突破 + trailing stop，支持模块热加载。
-- `config/strategies/vol_breakout_v1.yaml`
-  20-bar 突破 + 成交量确认 + MA50 趋势过滤。
-- `config/factors/daily_core_v1.yaml`
-  日级价格/成交量因子字段定义样例。
+这意味着你后续再补下面这些能力时，不需要推倒重来：
 
-## 数据与产物约定
+- 因子计算层
+- 回测执行引擎
+- 组合管理层
+- 评估与实验追踪
+- 实盘接口层
 
-### Raw 层
+## 当前边界
 
-```text
-data/raw/binance/spot/<symbol>/<interval>/<run_id>.jsonl
-data/raw/binance/spot/<symbol>/<interval>/<run_id>.meta.json
-data/raw/binance/spot/<symbol>/<interval>/_checkpoint.json
-data/raw/binance/spot/<run_id>.manifest.json
-```
+为了避免误解，当前版本的边界明确如下：
 
-### Normalized 层
+- 多源支持目前主要覆盖交易对浏览和本地研究清单管理
+- 已落地的 raw K 线下载器当前是 Binance
+- 平台已经能展示回测产物，但完整回测执行器仍适合在现有结构上继续补
+- 平台当前定位是本地单机研究控制台，而不是多用户 SaaS
 
-```text
-data/normalized/<data_version>/market_ohlcv_<interval>.jsonl
-data/normalized/<data_version>/market_ohlcv_<interval>.parquet
-```
+## Roadmap
 
-### 策略与回测产物
-
-```text
-data/signals/<strategy_id>/*
-data/backtests/<strategy_id>/summary.json
-data/backtests/<strategy_id>/trades.parquet
-data/backtests/<strategy_id>/portfolio_equity.parquet
-```
-
-## Docker
-
-构建镜像：
-
-```bash
-./scripts/build_docker_image.sh
-```
-
-如果你希望镜像同时带上 Parquet 依赖：
-
-```bash
-PIP_PACKAGES="duckdb pyarrow" ./scripts/build_docker_image.sh
-```
-
-运行交互式容器：
-
-```bash
-./scripts/run_docker_image.sh
-```
-
-容器内启动后台：
-
-```bash
-./scripts/run_docker_image.sh python3 -m src.admin.pairs_dashboard --host 0.0.0.0 --port 8866
-```
-
-## 测试
-
-```bash
-python3 -m unittest discover -s tests
-```
-
-`duckdb` 未安装时，相关集成测试会自动跳过。
-
-## 当前限制
-
-- 多源交易对浏览已支持 Binance / OKX / Bybit / HL，但 raw 下载链路当前主要接入 Binance
-- README 展示用截图还没有作为仓库静态资源提交
-- 因子计算、完整回测引擎、实验追踪表虽然已有结构预留，但还不是完整产品形态
-- 后台目前定位为本地单机控制台，不是多用户协作后台
-
-## 适合继续补的方向
-
-- 增加 OKX / Bybit / Hyperliquid 的原始数据采集器
-- 增加标准化后的因子计算层与因子产物落盘
-- 增加统一回测执行入口，而不只展示回测产物
-- 增加实验管理与参数对比
-- 增加 CI、格式检查、发布说明和版本号策略
-- 补齐仓库内嵌截图和示例数据集
+- 增加 OKX / Bybit / Hyperliquid 原始数据采集器
+- 增加 factor layer 和统一因子产物
+- 增加正式 backtest runner
+- 增加 experiment tracking 和参数对比
+- 增加 CI、格式检查、发布流程和版本标签
+- 增加仓库内嵌截图和示例数据
 
 ## License
 

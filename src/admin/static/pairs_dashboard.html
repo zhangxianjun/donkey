@@ -391,6 +391,10 @@
         background: rgba(246, 70, 93, 0.12);
       }
 
+      .status-banner {
+        display: grid;
+      }
+
       .metrics {
         display: grid;
         grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -835,6 +839,39 @@
         word-break: break-all;
       }
 
+      .chart-shell {
+        position: relative;
+        min-height: 640px;
+        overflow: hidden;
+        border: 1px solid rgba(71, 77, 87, 0.42);
+        border-radius: 16px;
+        background: #101418;
+      }
+
+      .chart-container {
+        width: 100%;
+        height: 640px;
+      }
+
+      .chart-placeholder {
+        min-height: 220px;
+        display: grid;
+        place-items: center;
+        border: 1px dashed rgba(240, 185, 11, 0.28);
+        border-radius: 16px;
+        padding: 24px;
+        text-align: center;
+        color: #9ea7b2;
+        background: rgba(240, 185, 11, 0.05);
+      }
+
+      .chart-placeholder strong {
+        display: block;
+        margin-bottom: 10px;
+        color: var(--ink);
+        font-size: 16px;
+      }
+
       .empty {
         padding: 28px 16px;
         text-align: center;
@@ -942,11 +979,17 @@
             <button class="nav-button" type="button" data-page="data-sources">
               <span class="nav-label">数据源</span>
             </button>
-            <button class="nav-button" type="button" data-page="download-config">
-              <span class="nav-label">下载配置</span>
-            </button>
             <button class="nav-button" type="button" data-page="local-data">
               <span class="nav-label">本地数据</span>
+            </button>
+            <button class="nav-button" type="button" data-page="normalized-data">
+              <span class="nav-label">格式数据</span>
+            </button>
+            <button class="nav-button" type="button" data-page="duckdb">
+              <span class="nav-label">DuckDB</span>
+            </button>
+            <button class="nav-button" type="button" data-page="download-config">
+              <span class="nav-label">下载配置</span>
             </button>
           </div>
         </div>
@@ -977,6 +1020,9 @@
       </aside>
 
       <main class="main">
+        <div class="status-banner">
+          <div class="status-line" id="statusLine">后台尚未加载</div>
+        </div>
         <div class="pages">
           <section class="page active" data-page-group="home">
             <section class="hero">
@@ -1103,7 +1149,7 @@
           <section class="page" data-page-group="download-config">
             <div class="page-head">
               <div>
-                <p class="page-kicker">1.2 下载配置</p>
+                <p class="page-kicker">1.5 下载配置</p>
                 <h2>下载配置</h2>
                 <p class="page-subtitle">统一维护数据源页面和本地数据页面共用的筛选与下载参数。</p>
               </div>
@@ -1149,7 +1195,7 @@
           <section class="page" data-page-group="local-data">
             <div class="page-head">
               <div>
-                <p class="page-kicker">1.3 本地数据</p>
+                <p class="page-kicker">1.2 本地数据</p>
                 <h2>本地数据</h2>
                 <p class="page-subtitle" id="localMeta">已下载 raw 数据按数据源区分展示，任务状态放在页面底部。</p>
               </div>
@@ -1184,9 +1230,230 @@
             </article>
 
             <article class="card">
+              <h3>本地交易清单</h3>
+              <p class="section-copy">手动加入的交易对会保留在本地交易清单中，可作为后续下载和格式化的候选。</p>
+              <div class="manual-list" id="manualList"></div>
+            </article>
+
+            <article class="card">
               <h3>任务状态</h3>
               <p class="section-copy" id="jobsMeta">本地数据页可以直接下载数据或同步最新数据。</p>
               <div class="job-list" id="localJobsMirror"></div>
+            </article>
+          </section>
+
+          <section class="page" data-page-group="normalized-data">
+            <div class="page-head">
+              <div>
+                <p class="page-kicker">1.3 格式数据</p>
+                <h2>格式数据</h2>
+                <p class="page-subtitle" id="normalizedMeta">从本地 raw 数据生成标准化 `market_ohlcv` 数据集。</p>
+              </div>
+            </div>
+
+            <div class="page-grid two-col">
+              <article class="card">
+                <h3>Normalize 配置</h3>
+                <p class="section-copy">当前内置流程基于 Binance raw K 线文件执行标准化，输出到 `data/normalized/<data_version>`。</p>
+                <div class="form-grid">
+                  <label class="field">
+                    <span class="field-label">Data Version</span>
+                    <input id="normalizeDataVersionInput" type="text" value="v1" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Output Format</span>
+                    <select id="normalizeOutputFormatSelect">
+                      <option value="auto">auto</option>
+                      <option value="jsonl">jsonl</option>
+                      <option value="parquet">parquet</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">来源</span>
+                    <select id="normalizeSourceSelect">
+                      <option value="binance">币安 raw</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">周期过滤</span>
+                    <input id="normalizeIntervalInput" type="text" placeholder="留空则沿用下载配置中的周期" />
+                  </label>
+                </div>
+                <div class="toolbar">
+                  <div class="toolbar-row">
+                    <button id="normalizeAllButton" type="button">格式化全部候选 raw</button>
+                    <span class="hint">页面行按钮可单独格式化某个交易对；非 Binance 来源会显示不可用。</span>
+                  </div>
+                </div>
+              </article>
+
+              <article class="card">
+                <h3>Normalize 任务</h3>
+                <p class="section-copy" id="normalizeJobsMeta">标准化任务尚未加载。</p>
+                <div class="job-list" id="normalizeJobsList"></div>
+              </article>
+            </div>
+
+            <article class="card">
+              <h3>Raw 候选</h3>
+              <p class="section-copy">从“本地数据”页发现的 raw 数据中选择交易对并执行标准化。</p>
+              <div class="table-shell">
+                <div class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>来源</th>
+                        <th>交易对</th>
+                        <th>周期</th>
+                        <th>原始文件</th>
+                        <th>最近更新</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="normalizeRows"></tbody>
+                  </table>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <h3>Normalized 数据集</h3>
+              <p class="section-copy">展示 `data/normalized` 下已发现的数据版本和文件。</p>
+              <div class="table-shell">
+                <div class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Data Version</th>
+                        <th>Interval</th>
+                        <th>格式</th>
+                        <th>行数</th>
+                        <th>源文件</th>
+                        <th>最近更新</th>
+                      </tr>
+                    </thead>
+                    <tbody id="normalizedDatasetRows"></tbody>
+                  </table>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section class="page" data-page-group="duckdb">
+            <div class="page-head">
+              <div>
+                <p class="page-kicker">1.4 DuckDB</p>
+                <h2>DuckDB 装载</h2>
+                <p class="page-subtitle" id="duckdbMeta">从 normalized 数据版本装载到 `market_ohlcv` 表。</p>
+              </div>
+            </div>
+
+            <div class="page-grid two-col">
+              <article class="card">
+                <h3>装载配置</h3>
+                <p class="section-copy">选择一个 normalized 版本，必要时按 interval 过滤后写入 DuckDB。</p>
+                <div class="form-grid">
+                  <label class="field">
+                    <span class="field-label">Data Version</span>
+                    <select id="duckdbDataVersionSelect"></select>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Interval 过滤</span>
+                    <input id="duckdbIntervalInput" type="text" placeholder="如 1h,4h；留空装载全部" />
+                  </label>
+                </div>
+                <div class="toolbar">
+                  <div class="toolbar-row">
+                    <button id="loadDuckdbButton" type="button">装载到 DuckDB</button>
+                    <span class="hint">同一 `data_version + interval` 再次装载会替换旧数据，不会无限累加。</span>
+                  </div>
+                </div>
+              </article>
+
+              <article class="card">
+                <h3>Warehouse 概览</h3>
+                <p class="section-copy">读取 DuckDB 当前状态、已装载数据量和 Charting Library bundle 可用性。</p>
+                <div class="settings-grid" id="duckdbOverviewGrid"></div>
+              </article>
+            </div>
+
+            <article class="card">
+              <h3>已装载数据</h3>
+              <p class="section-copy">按 data version / interval / symbol 展示 `market_ohlcv` 表内的已装载交易对，并可直接打开新标签查看 K 线。</p>
+              <div class="table-shell">
+                <div class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Data Version</th>
+                        <th>Interval</th>
+                        <th>交易对</th>
+                        <th>Rows</th>
+                        <th>范围</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="duckdbRows"></tbody>
+                  </table>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <h3>装载任务</h3>
+              <p class="section-copy" id="duckdbJobsMeta">DuckDB 装载任务尚未加载。</p>
+              <div class="job-list" id="duckdbJobsList"></div>
+            </article>
+          </section>
+
+          <section class="page" data-page-group="charting-library">
+            <div class="page-head">
+              <div>
+                <p class="page-kicker">1.6 K线图表</p>
+                <h2>Charting Library</h2>
+                <p class="page-subtitle" id="chartMeta">从 DuckDB 查询 K 线，并通过自定义 datafeed 渲染到 TradingView Charting Library。</p>
+              </div>
+            </div>
+
+            <article class="card">
+              <h3>图表配置</h3>
+              <p class="section-copy">图表数据来自 DuckDB；如果本地未放置官方 Charting Library bundle，页面会给出明确提示。</p>
+              <div class="form-grid">
+                <label class="field">
+                  <span class="field-label">Data Version</span>
+                  <select id="chartDataVersionSelect"></select>
+                </label>
+                <label class="field">
+                  <span class="field-label">Interval</span>
+                  <select id="chartIntervalSelect"></select>
+                </label>
+                <label class="field">
+                  <span class="field-label">Symbol</span>
+                  <select id="chartSymbolSelect"></select>
+                </label>
+                <label class="field">
+                  <span class="field-label">Bundle 路径</span>
+                  <input id="chartLibraryPathInput" type="text" value="/charting_library/" readonly />
+                </label>
+              </div>
+              <div class="toolbar">
+                <div class="toolbar-row">
+                  <button id="loadChartButton" type="button">加载图表</button>
+                  <span class="hint">切换 data version / interval 后，会重新读取 DuckDB 的 symbol 列表。</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="chart-placeholder" id="chartPlaceholder">
+                <div>
+                  <strong>Charting Library 尚未加载</strong>
+                  <span id="chartPlaceholderCopy">选择 DuckDB 中的 data version、interval 和 symbol 后点击“加载图表”。</span>
+                </div>
+              </div>
+              <div class="chart-shell">
+                <div class="chart-container" id="chartContainer"></div>
+              </div>
             </article>
           </section>
 
@@ -1333,6 +1600,24 @@
         jobs: [],
         jobsMeta: null,
         jobSignature: "",
+        normalizedMeta: null,
+        normalizedFiles: [],
+        normalizeJobs: [],
+        normalizeJobsMeta: null,
+        duckdbStatus: null,
+        duckdbSymbols: [],
+        duckdbSymbolsMeta: null,
+        duckdbLoadJobs: [],
+        duckdbLoadJobsMeta: null,
+        selectedDuckdbDataVersion: "",
+        selectedChartDataVersion: "",
+        selectedChartInterval: "",
+        selectedChartSymbol: "",
+        chartLibraryLoaded: false,
+        chartLibraryLoadFailed: false,
+        chartWidget: null,
+        chartWidgetKey: "",
+        chartLoading: false,
       };
 
       const els = {
@@ -1377,6 +1662,33 @@
         backtestCount: document.getElementById("backtestCount"),
         homeSourceSummary: document.getElementById("homeSourceSummary"),
         homeQuickFacts: document.getElementById("homeQuickFacts"),
+        normalizedMeta: document.getElementById("normalizedMeta"),
+        normalizeDataVersionInput: document.getElementById("normalizeDataVersionInput"),
+        normalizeOutputFormatSelect: document.getElementById("normalizeOutputFormatSelect"),
+        normalizeSourceSelect: document.getElementById("normalizeSourceSelect"),
+        normalizeIntervalInput: document.getElementById("normalizeIntervalInput"),
+        normalizeAllButton: document.getElementById("normalizeAllButton"),
+        normalizeRows: document.getElementById("normalizeRows"),
+        normalizedDatasetRows: document.getElementById("normalizedDatasetRows"),
+        normalizeJobsMeta: document.getElementById("normalizeJobsMeta"),
+        normalizeJobsList: document.getElementById("normalizeJobsList"),
+        duckdbMeta: document.getElementById("duckdbMeta"),
+        duckdbDataVersionSelect: document.getElementById("duckdbDataVersionSelect"),
+        duckdbIntervalInput: document.getElementById("duckdbIntervalInput"),
+        loadDuckdbButton: document.getElementById("loadDuckdbButton"),
+        duckdbOverviewGrid: document.getElementById("duckdbOverviewGrid"),
+        duckdbRows: document.getElementById("duckdbRows"),
+        duckdbJobsMeta: document.getElementById("duckdbJobsMeta"),
+        duckdbJobsList: document.getElementById("duckdbJobsList"),
+        chartMeta: document.getElementById("chartMeta"),
+        chartDataVersionSelect: document.getElementById("chartDataVersionSelect"),
+        chartIntervalSelect: document.getElementById("chartIntervalSelect"),
+        chartSymbolSelect: document.getElementById("chartSymbolSelect"),
+        chartLibraryPathInput: document.getElementById("chartLibraryPathInput"),
+        loadChartButton: document.getElementById("loadChartButton"),
+        chartPlaceholder: document.getElementById("chartPlaceholder"),
+        chartPlaceholderCopy: document.getElementById("chartPlaceholderCopy"),
+        chartContainer: document.getElementById("chartContainer"),
       };
 
       function escapeHtml(value) {
@@ -1494,6 +1806,127 @@
         params.set("quote_asset", getQuoteAssetValue());
         params.set("tradeable_only", els.tradeableOnly.checked ? "true" : "false");
         return `/api/source-pairs?${params.toString()}`;
+      }
+
+      function buildChartPageUrl({ dataVersion, interval, symbol }) {
+        const params = new URLSearchParams();
+        params.set("page", "charting-library");
+        params.set("data_version", dataVersion);
+        params.set("interval", interval);
+        params.set("symbol", symbol);
+        return `/?${params.toString()}`;
+      }
+
+      function initializeStateFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const page = params.get("page");
+        if (page) {
+          state.selectedPage = page;
+        }
+
+        const dataVersion = params.get("data_version");
+        if (dataVersion) {
+          state.selectedChartDataVersion = dataVersion.trim();
+          state.selectedDuckdbDataVersion = dataVersion.trim();
+        }
+
+        const interval = params.get("interval");
+        if (interval) {
+          state.selectedChartInterval = interval.trim().toLowerCase();
+        }
+
+        const symbol = params.get("symbol");
+        if (symbol) {
+          state.selectedChartSymbol = symbol.trim().toUpperCase();
+        }
+      }
+
+      const INTERVAL_TO_RESOLUTION = {
+        "1m": "1",
+        "3m": "3",
+        "5m": "5",
+        "15m": "15",
+        "30m": "30",
+        "1h": "60",
+        "2h": "120",
+        "4h": "240",
+        "6h": "360",
+        "8h": "480",
+        "12h": "720",
+        "1d": "1D",
+        "1w": "1W",
+      };
+
+      const RESOLUTION_TO_INTERVAL = Object.fromEntries(
+        Object.entries(INTERVAL_TO_RESOLUTION).map(([interval, resolution]) => [resolution, interval])
+      );
+
+      function parseCommaSeparatedInput(value) {
+        return String(value || "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+
+      function normalizeIntervalInputValue(value, fallbackValue = "") {
+        const parsed = parseCommaSeparatedInput(value || fallbackValue).map((item) => item.toLowerCase());
+        return Array.from(new Set(parsed));
+      }
+
+      function normalizedVersionOptions() {
+        return state.normalizedMeta && Array.isArray(state.normalizedMeta.versions)
+          ? state.normalizedMeta.versions.map((item) => item.data_version)
+          : [];
+      }
+
+      function duckdbLoadedVersionOptions() {
+        if (!state.duckdbStatus || !Array.isArray(state.duckdbStatus.versions)) {
+          return [];
+        }
+        return Array.from(new Set(state.duckdbStatus.versions.map((item) => item.data_version)));
+      }
+
+      function chartIntervalsForVersion(dataVersion) {
+        if (!state.duckdbStatus || !Array.isArray(state.duckdbStatus.versions)) {
+          return [];
+        }
+        return state.duckdbStatus.versions
+          .filter((item) => item.data_version === dataVersion)
+          .map((item) => item.interval);
+      }
+
+      function syncSelectionState() {
+        const normalizedVersions = normalizedVersionOptions();
+        const latestNormalizedVersion = normalizedVersions.length ? normalizedVersions[normalizedVersions.length - 1] : "";
+        if (!state.selectedDuckdbDataVersion || !normalizedVersions.includes(state.selectedDuckdbDataVersion)) {
+          state.selectedDuckdbDataVersion = latestNormalizedVersion;
+        }
+
+        const loadedVersions = duckdbLoadedVersionOptions();
+        const preferredChartVersion = loadedVersions.length
+          ? loadedVersions[loadedVersions.length - 1]
+          : latestNormalizedVersion;
+        if (!state.selectedChartDataVersion || !loadedVersions.includes(state.selectedChartDataVersion)) {
+          state.selectedChartDataVersion = preferredChartVersion;
+        }
+
+        const chartIntervals = chartIntervalsForVersion(state.selectedChartDataVersion);
+        if (!state.selectedChartInterval || !chartIntervals.includes(state.selectedChartInterval)) {
+          state.selectedChartInterval = chartIntervals[0] || "";
+        }
+
+        const symbolOptions = state.duckdbSymbols.map((entry) => entry.symbol);
+        if (!state.selectedChartSymbol || !symbolOptions.includes(state.selectedChartSymbol)) {
+          state.selectedChartSymbol = symbolOptions[0] || "";
+        }
+      }
+
+      function resolutionFromInterval(interval) {
+        return INTERVAL_TO_RESOLUTION[interval] || "60";
+      }
+
+      function intervalFromResolution(resolution) {
+        return RESOLUTION_TO_INTERVAL[String(resolution)] || String(resolution || "").toLowerCase();
       }
 
       function renderNav() {
@@ -1812,6 +2245,272 @@
         }).join("");
       }
 
+      function renderNormalizeJobs() {
+        if (!state.normalizeJobsMeta) {
+          els.normalizeJobsMeta.textContent = "标准化任务尚未加载。";
+        } else {
+          const activeCount = state.normalizeJobs.filter((job) => job.status === "queued" || job.status === "running").length;
+          els.normalizeJobsMeta.textContent = `共 ${state.normalizeJobsMeta.count} 个任务，运行中 ${activeCount} 个`;
+        }
+
+        if (state.normalizeJobs.length === 0) {
+          els.normalizeJobsList.innerHTML = '<div class="empty">还没有标准化任务</div>';
+          return;
+        }
+
+        els.normalizeJobsList.innerHTML = state.normalizeJobs.slice(0, 8).map((job) => {
+          const detail = `${job.source} | ${job.symbols.length ? job.symbols.join(", ") : "全部 symbol"} | ${job.intervals.join(", ")}`;
+          return `
+            <article class="job-card">
+              <div class="job-head">
+                <div class="symbol-cell">
+                  <div class="symbol-main">${escapeHtml(job.data_version)}</div>
+                  <div class="subline">${escapeHtml(detail)}</div>
+                </div>
+                <span class="pill job-${job.status}">${escapeHtml(job.status.toUpperCase())}</span>
+              </div>
+              <div class="subline">输出格式 ${escapeHtml(job.output_format)} | raw 文件 ${escapeHtml(job.raw_file_count || 0)}</div>
+              <div class="subline">创建 ${escapeHtml(formatTime(job.created_at))}</div>
+              ${job.error ? `<div class="subline">错误: ${escapeHtml(job.error)}</div>` : ""}
+            </article>
+          `;
+        }).join("");
+      }
+
+      function renderNormalizedData() {
+        const normalizeSource = els.normalizeSourceSelect.value || "binance";
+        const candidates = state.localPairs.filter((pair) => pair.source === normalizeSource);
+        if (!state.normalizedMeta) {
+          els.normalizedMeta.textContent = "格式数据尚未加载。";
+        } else {
+          els.normalizedMeta.textContent = `共发现 ${state.normalizedMeta.version_count} 个 data version，${state.normalizedMeta.count} 个 normalized 文件。`;
+        }
+
+        if (candidates.length === 0) {
+          els.normalizeRows.innerHTML = '<tr><td class="empty" colspan="6">当前没有可格式化的 raw 数据</td></tr>';
+        } else {
+          const activeDataVersions = new Set(
+            state.normalizeJobs
+              .filter((job) => job.status === "queued" || job.status === "running")
+              .map((job) => job.data_version)
+          );
+          const requestedDataVersion = els.normalizeDataVersionInput.value.trim();
+          els.normalizeRows.innerHTML = candidates.map((pair) => {
+            const canNormalize = pair.source === "binance";
+            const active = requestedDataVersion && activeDataVersions.has(requestedDataVersion);
+            return `
+              <tr>
+                <td><span class="pill good">${escapeHtml(pair.source_label)}</span></td>
+                <td>
+                  <div class="symbol-cell">
+                    <div class="symbol-main">${escapeHtml(pair.display_symbol)}</div>
+                    <div class="subline">${escapeHtml(pair.symbol)}</div>
+                  </div>
+                </td>
+                <td><div class="pill-row">${pair.intervals.map((interval) => `<span class="pill info">${escapeHtml(interval)}</span>`).join("")}</div></td>
+                <td class="subline">jsonl ${escapeHtml(pair.data_file_count)} / meta ${escapeHtml(pair.metadata_file_count)}</td>
+                <td class="subline">${escapeHtml(formatTime(pair.last_updated))}</td>
+                <td class="pill-row">
+                  ${
+                    canNormalize
+                      ? `<button class="button-small" type="button" data-action="normalize-row" data-source="${escapeHtml(pair.source)}" data-symbol="${escapeHtml(pair.symbol)}" data-intervals="${escapeHtml(pair.intervals.join(","))}" ${active ? "disabled" : ""}>${active ? "处理中" : "格式化"}</button>`
+                      : '<span class="subline">当前仅支持 Binance</span>'
+                  }
+                </td>
+              </tr>
+            `;
+          }).join("");
+        }
+
+        if (!state.normalizedFiles.length) {
+          els.normalizedDatasetRows.innerHTML = '<tr><td class="empty" colspan="6">还没有 normalized 文件</td></tr>';
+          return;
+        }
+
+        els.normalizedDatasetRows.innerHTML = state.normalizedFiles.map((entry) => {
+          return `
+            <tr>
+              <td>
+                <div class="symbol-cell">
+                  <div class="symbol-main">${escapeHtml(entry.data_version)}</div>
+                  <div class="subline">${escapeHtml(entry.path)}</div>
+                </div>
+              </td>
+              <td><span class="pill info">${escapeHtml(entry.interval)}</span></td>
+              <td><span class="pill good">${escapeHtml(entry.file_format)}</span></td>
+              <td class="subline">${escapeHtml(entry.row_count ?? "未记录")}</td>
+              <td class="subline">${escapeHtml(entry.source_file_count ?? "未记录")}</td>
+              <td class="subline">${escapeHtml(formatTime(entry.updated_at))}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      function renderDuckdbControls() {
+        syncSelectionState();
+        const options = normalizedVersionOptions();
+        els.duckdbDataVersionSelect.innerHTML = options.length
+          ? options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")
+          : '<option value="">暂无 normalized 版本</option>';
+        els.duckdbDataVersionSelect.value = state.selectedDuckdbDataVersion || "";
+      }
+
+      function renderDuckdbOverview() {
+        if (!state.duckdbStatus) {
+          els.duckdbMeta.textContent = "DuckDB 状态尚未加载。";
+          els.duckdbOverviewGrid.innerHTML = '<div class="empty">DuckDB 状态尚未加载</div>';
+          els.duckdbRows.innerHTML = '<tr><td class="empty" colspan="6">尚未读取 DuckDB 内容</td></tr>';
+          return;
+        }
+
+        const duckdbError = state.duckdbStatus.error;
+        const bundleState = state.duckdbStatus.charting_library && state.duckdbStatus.charting_library.bundle_exists
+          ? "已就绪"
+          : "缺失";
+        els.duckdbMeta.textContent = duckdbError
+          ? duckdbError
+          : `DuckDB 文件 ${state.duckdbStatus.db_exists ? "已存在" : "不存在"}，market_ohlcv ${state.duckdbStatus.table_exists ? "已初始化" : "未初始化"}，总行数 ${state.duckdbStatus.total_rows}`;
+
+        const overviewItems = [
+          ["DuckDB 文件", state.duckdbStatus.db_exists ? "已存在" : "不存在"],
+          ["market_ohlcv", state.duckdbStatus.table_exists ? "已就绪" : "未初始化"],
+          ["总行数", String(state.duckdbStatus.total_rows || 0)],
+          ["可用 symbols", String((state.duckdbStatus.symbols || []).length)],
+          ["可用 intervals", String((state.duckdbStatus.intervals || []).length)],
+          ["Charting Library Bundle", bundleState],
+        ];
+
+        els.duckdbOverviewGrid.innerHTML = overviewItems.map(([label, value]) => {
+          return `
+            <article class="settings-card">
+              <div class="field-label">${escapeHtml(label)}</div>
+              <div class="settings-value">${escapeHtml(value)}</div>
+            </article>
+          `;
+        }).join("");
+
+        const symbolRows = Array.isArray(state.duckdbStatus.symbol_rows) ? state.duckdbStatus.symbol_rows : [];
+        if (!symbolRows.length) {
+          els.duckdbRows.innerHTML = '<tr><td class="empty" colspan="6">DuckDB 中还没有装载数据</td></tr>';
+          return;
+        }
+
+        els.duckdbRows.innerHTML = symbolRows.map((entry) => {
+          return `
+            <tr>
+              <td><div class="symbol-main">${escapeHtml(entry.data_version)}</div></td>
+              <td><span class="pill info">${escapeHtml(entry.interval)}</span></td>
+              <td>
+                <div class="symbol-cell">
+                  <div class="symbol-main">${escapeHtml(entry.symbol)}</div>
+                  <div class="subline">${escapeHtml(entry.exchange)} / ${escapeHtml(entry.market_type)}</div>
+                </div>
+              </td>
+              <td class="subline">${escapeHtml(entry.row_count)}</td>
+              <td class="subline">${escapeHtml(entry.first_ts || "-")}<br />${escapeHtml(entry.last_ts || "-")}</td>
+              <td class="pill-row">
+                <button
+                  class="button-small"
+                  type="button"
+                  data-action="open-chart"
+                  data-version="${escapeHtml(entry.data_version)}"
+                  data-interval="${escapeHtml(entry.interval)}"
+                  data-symbol="${escapeHtml(entry.symbol)}"
+                >查看K线</button>
+              </td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      function renderDuckdbJobs() {
+        if (!state.duckdbLoadJobsMeta) {
+          els.duckdbJobsMeta.textContent = "DuckDB 装载任务尚未加载。";
+        } else {
+          const activeCount = state.duckdbLoadJobs.filter((job) => job.status === "queued" || job.status === "running").length;
+          els.duckdbJobsMeta.textContent = `共 ${state.duckdbLoadJobsMeta.count} 个任务，运行中 ${activeCount} 个`;
+        }
+
+        if (state.duckdbLoadJobs.length === 0) {
+          els.duckdbJobsList.innerHTML = '<div class="empty">还没有 DuckDB 装载任务</div>';
+          return;
+        }
+
+        els.duckdbJobsList.innerHTML = state.duckdbLoadJobs.slice(0, 8).map((job) => {
+          const intervalText = job.intervals && job.intervals.length ? job.intervals.join(", ") : "全部 interval";
+          return `
+            <article class="job-card">
+              <div class="job-head">
+                <div class="symbol-cell">
+                  <div class="symbol-main">${escapeHtml(job.data_version)}</div>
+                  <div class="subline">${escapeHtml(intervalText)}</div>
+                </div>
+                <span class="pill job-${job.status}">${escapeHtml(job.status.toUpperCase())}</span>
+              </div>
+              <div class="subline">已装载文件 ${escapeHtml(job.loaded_files.length)}</div>
+              <div class="subline">当前 data version 行数 ${escapeHtml(job.market_ohlcv_rows_for_data_version ?? 0)}</div>
+              ${job.error ? `<div class="subline">错误: ${escapeHtml(job.error)}</div>` : ""}
+            </article>
+          `;
+        }).join("");
+      }
+
+      function renderChartControls() {
+        syncSelectionState();
+        const versionOptions = duckdbLoadedVersionOptions();
+        els.chartDataVersionSelect.innerHTML = versionOptions.length
+          ? versionOptions.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")
+          : '<option value="">暂无 DuckDB 数据</option>';
+        els.chartDataVersionSelect.value = state.selectedChartDataVersion || "";
+
+        const intervalOptions = chartIntervalsForVersion(state.selectedChartDataVersion);
+        els.chartIntervalSelect.innerHTML = intervalOptions.length
+          ? intervalOptions.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")
+          : '<option value="">暂无 interval</option>';
+        els.chartIntervalSelect.value = state.selectedChartInterval || "";
+
+        els.chartSymbolSelect.innerHTML = state.duckdbSymbols.length
+          ? state.duckdbSymbols.map((entry) => `<option value="${escapeHtml(entry.symbol)}">${escapeHtml(entry.symbol)}</option>`).join("")
+          : '<option value="">暂无 symbol</option>';
+        els.chartSymbolSelect.value = state.selectedChartSymbol || "";
+
+        const bundleExists = Boolean(
+          state.duckdbStatus &&
+          state.duckdbStatus.charting_library &&
+          state.duckdbStatus.charting_library.bundle_exists
+        );
+        const symbolCount = state.duckdbSymbols.length;
+        els.chartMeta.textContent = bundleExists
+          ? `当前可用 symbol ${symbolCount} 个，bundle 已就绪。`
+          : "当前尚未检测到 Charting Library bundle，图表页会显示加载指引。";
+
+        if (!bundleExists) {
+          els.chartPlaceholder.style.display = "grid";
+          els.chartPlaceholderCopy.textContent = "请将官方 Charting Library bundle 放到 /charting_library/ 对应的静态目录后再加载图表。";
+          return;
+        }
+
+        if (!state.selectedChartDataVersion || !state.selectedChartInterval || !state.selectedChartSymbol) {
+          els.chartPlaceholder.style.display = "grid";
+          els.chartPlaceholderCopy.textContent = "请先选择 DuckDB 中已装载的数据版本、周期和交易对。";
+          return;
+        }
+
+        if (state.chartLibraryLoadFailed) {
+          els.chartPlaceholder.style.display = "grid";
+          els.chartPlaceholderCopy.textContent = "Charting Library bundle 加载失败，请确认 charting_library.js 是否存在且可被后台访问。";
+          return;
+        }
+
+        if (!state.chartWidget) {
+          els.chartPlaceholder.style.display = "grid";
+          els.chartPlaceholderCopy.textContent = "选择完成后点击“加载图表”。";
+          return;
+        }
+
+        els.chartPlaceholder.style.display = "none";
+      }
+
       function renderStrategies() {
         if (state.strategies.length === 0) {
           els.strategyRows.innerHTML = '<tr><td class="empty" colspan="4">还没有策略配置</td></tr>';
@@ -1887,6 +2586,9 @@
           ["日志文件数", String(state.settings.log_count)],
           ["本地交易数", String(state.settings.local_trading_pair_count)],
           ["下载任务数", String(state.settings.download_job_count)],
+          ["标准化任务数", String(state.settings.normalize_job_count)],
+          ["DuckDB 装载任务数", String(state.settings.duckdb_load_job_count)],
+          ["Charting Bundle", state.settings.charting_library_bundle_exists ? "已就绪" : "缺失"],
         ];
 
         els.settingsGrid.innerHTML = settingsItems.map(([label, value]) => {
@@ -1961,6 +2663,12 @@
         renderManualList();
         renderLocalMeta();
         renderLocalData();
+        renderNormalizeJobs();
+        renderNormalizedData();
+        renderDuckdbControls();
+        renderDuckdbOverview();
+        renderDuckdbJobs();
+        renderChartControls();
         renderStrategies();
         renderBacktests();
         renderSettings();
@@ -2027,6 +2735,48 @@
         }
       }
 
+      async function loadNormalizedDatasets() {
+        const payload = await requestJson("/api/normalized-datasets");
+        state.normalizedMeta = payload;
+        state.normalizedFiles = payload.files || [];
+        syncSelectionState();
+      }
+
+      async function loadNormalizeJobs() {
+        const payload = await requestJson("/api/normalize-jobs");
+        state.normalizeJobsMeta = payload;
+        state.normalizeJobs = payload.jobs || [];
+      }
+
+      async function loadDuckdbStatus() {
+        state.duckdbStatus = await requestJson("/api/duckdb-status");
+        syncSelectionState();
+      }
+
+      async function loadDuckdbLoadJobs() {
+        const payload = await requestJson("/api/duckdb-load-jobs");
+        state.duckdbLoadJobsMeta = payload;
+        state.duckdbLoadJobs = payload.jobs || [];
+      }
+
+      async function loadDuckdbSymbols() {
+        syncSelectionState();
+        if (!state.selectedChartDataVersion || !state.selectedChartInterval) {
+          state.duckdbSymbolsMeta = null;
+          state.duckdbSymbols = [];
+          state.selectedChartSymbol = "";
+          return;
+        }
+
+        const params = new URLSearchParams();
+        params.set("data_version", state.selectedChartDataVersion);
+        params.set("interval", state.selectedChartInterval);
+        const payload = await requestJson(`/api/duckdb-symbols?${params.toString()}`);
+        state.duckdbSymbolsMeta = payload;
+        state.duckdbSymbols = payload.symbols || [];
+        syncSelectionState();
+      }
+
       async function bootstrapApp() {
         setStatus("正在加载后台数据...");
         try {
@@ -2039,7 +2789,20 @@
             loadSettings(),
             loadCurrencyIcons(),
             loadJobs(),
+            loadNormalizedDatasets(),
+            loadNormalizeJobs(),
+            loadDuckdbStatus(),
+            loadDuckdbLoadJobs(),
           ]);
+          await loadDuckdbSymbols();
+          if (
+            state.selectedPage === "charting-library" &&
+            state.selectedChartDataVersion &&
+            state.selectedChartInterval &&
+            state.selectedChartSymbol
+          ) {
+            await loadChartWidget();
+          }
           renderAll();
           setStatus(`加载完成 ${formatTime(new Date().toISOString())}`);
         } catch (error) {
@@ -2120,6 +2883,205 @@
         return response.pair;
       }
 
+      async function createNormalizeJob(payload) {
+        const response = await requestJson("/api/normalize", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        await loadNormalizeJobs();
+        renderAll();
+        setStatus(`已创建标准化任务 ${response.job.data_version}`);
+      }
+
+      async function createDuckdbLoadJob(payload) {
+        const response = await requestJson("/api/load-duckdb", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        await loadDuckdbLoadJobs();
+        renderAll();
+        setStatus(`已创建 DuckDB 装载任务 ${response.job.data_version}`);
+      }
+
+      function destroyChartWidget() {
+        if (state.chartWidget && typeof state.chartWidget.remove === "function") {
+          state.chartWidget.remove();
+        }
+        state.chartWidget = null;
+        state.chartWidgetKey = "";
+        els.chartContainer.innerHTML = "";
+      }
+
+      async function ensureChartingLibraryScript() {
+        if (window.TradingView && typeof window.TradingView.widget === "function") {
+          state.chartLibraryLoaded = true;
+          state.chartLibraryLoadFailed = false;
+          return true;
+        }
+
+        if (state.chartLoading) {
+          return false;
+        }
+
+        state.chartLoading = true;
+        return new Promise((resolve) => {
+          const existingScript = document.querySelector('script[data-charting-library="true"]');
+          if (existingScript) {
+            existingScript.addEventListener("load", () => {
+              state.chartLibraryLoaded = true;
+              state.chartLibraryLoadFailed = false;
+              state.chartLoading = false;
+              resolve(true);
+            }, { once: true });
+            existingScript.addEventListener("error", () => {
+              state.chartLibraryLoaded = false;
+              state.chartLibraryLoadFailed = true;
+              state.chartLoading = false;
+              resolve(false);
+            }, { once: true });
+            return;
+          }
+
+          const script = document.createElement("script");
+          script.src = "/charting_library/charting_library.js";
+          script.async = true;
+          script.dataset.chartingLibrary = "true";
+          script.onload = () => {
+            state.chartLibraryLoaded = true;
+            state.chartLibraryLoadFailed = false;
+            state.chartLoading = false;
+            resolve(true);
+          };
+          script.onerror = () => {
+            state.chartLibraryLoaded = false;
+            state.chartLibraryLoadFailed = true;
+            state.chartLoading = false;
+            resolve(false);
+          };
+          document.head.appendChild(script);
+        });
+      }
+
+      function makeDuckdbDatafeed() {
+        return {
+          onReady(callback) {
+            const availableIntervals = chartIntervalsForVersion(state.selectedChartDataVersion);
+            const supportedResolutions = availableIntervals.map((interval) => INTERVAL_TO_RESOLUTION[interval]).filter(Boolean);
+            window.setTimeout(() => {
+              callback({
+                supported_resolutions: supportedResolutions.length ? supportedResolutions : ["60", "240", "1D", "1W"],
+                supports_group_request: false,
+                supports_marks: false,
+                supports_search: false,
+                supports_timescale_marks: false,
+                supports_time: true,
+              });
+            }, 0);
+          },
+          resolveSymbol(symbolName, onSymbolResolvedCallback, onResolveErrorCallback) {
+            const resolved = state.duckdbSymbols.find((entry) => entry.symbol === symbolName);
+            if (!resolved) {
+              onResolveErrorCallback("symbol not found");
+              return;
+            }
+            window.setTimeout(() => {
+              onSymbolResolvedCallback({
+                name: resolved.symbol,
+                ticker: resolved.symbol,
+                description: `${resolved.exchange} ${resolved.market_type}`,
+                session: "24x7",
+                timezone: "Etc/UTC",
+                exchange: resolved.exchange.toUpperCase(),
+                listed_exchange: resolved.exchange.toUpperCase(),
+                type: "crypto",
+                minmov: 1,
+                pricescale: 100000000,
+                has_intraday: true,
+                has_weekly_and_monthly: true,
+                visible_plots_set: "ohlcv",
+                supported_resolutions: chartIntervalsForVersion(state.selectedChartDataVersion)
+                  .map((interval) => INTERVAL_TO_RESOLUTION[interval])
+                  .filter(Boolean),
+                volume_precision: 8,
+                data_status: "streaming",
+              });
+            }, 0);
+          },
+          async getBars(symbolInfo, resolution, periodParams, onHistoryCallback, onErrorCallback) {
+            try {
+              const interval = intervalFromResolution(resolution) || state.selectedChartInterval;
+              const params = new URLSearchParams();
+              params.set("symbol", symbolInfo.ticker || symbolInfo.name);
+              params.set("interval", interval);
+              params.set("data_version", state.selectedChartDataVersion);
+              params.set("limit", "10000");
+              if (periodParams && typeof periodParams.from === "number") {
+                params.set("from", String(periodParams.from));
+              }
+              if (periodParams && typeof periodParams.to === "number") {
+                params.set("to", String(periodParams.to));
+              }
+              const payload = await requestJson(`/api/chart-bars?${params.toString()}`);
+              onHistoryCallback(payload.bars || [], { noData: !payload.bars || payload.bars.length === 0 });
+            } catch (error) {
+              onErrorCallback(error.message || "load bars failed");
+            }
+          },
+          subscribeBars() {},
+          unsubscribeBars() {},
+        };
+      }
+
+      async function loadChartWidget() {
+        syncSelectionState();
+        if (!state.selectedChartDataVersion || !state.selectedChartInterval || !state.selectedChartSymbol) {
+          setStatus("请先选择可用的 DuckDB data version、interval 和 symbol", true);
+          renderAll();
+          return;
+        }
+
+        setStatus(`正在加载图表 ${state.selectedChartSymbol} ${state.selectedChartInterval}...`);
+        const loaded = await ensureChartingLibraryScript();
+        if (!loaded || !window.TradingView || typeof window.TradingView.widget !== "function") {
+          state.chartLibraryLoadFailed = true;
+          destroyChartWidget();
+          renderAll();
+          setStatus("Charting Library bundle 未就绪", true);
+          return;
+        }
+
+        const nextWidgetKey = `${state.selectedChartDataVersion}:${state.selectedChartInterval}:${state.selectedChartSymbol}`;
+        if (state.chartWidgetKey === nextWidgetKey && state.chartWidget) {
+          renderAll();
+          setStatus(`图表已加载 ${state.selectedChartSymbol}`);
+          return;
+        }
+
+        destroyChartWidget();
+        els.chartContainer.innerHTML = "";
+        state.chartWidget = new window.TradingView.widget({
+          container_id: "chartContainer",
+          container: "chartContainer",
+          library_path: "/charting_library/",
+          datafeed: makeDuckdbDatafeed(),
+          symbol: state.selectedChartSymbol,
+          interval: resolutionFromInterval(state.selectedChartInterval),
+          locale: "zh",
+          timezone: "Etc/UTC",
+          autosize: true,
+          theme: "dark",
+          style: "1",
+          withdateranges: true,
+          hide_top_toolbar: false,
+          allow_symbol_change: false,
+          details: true,
+          studies_overrides: {},
+        });
+        state.chartWidgetKey = nextWidgetKey;
+        renderAll();
+        setStatus(`图表已加载 ${state.selectedChartSymbol} ${state.selectedChartInterval}`);
+      }
+
       function readFileAsBase64(file) {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
@@ -2175,6 +3137,66 @@
         }
       }
 
+      function currentNormalizeConfig() {
+        const configuredIntervals = normalizeIntervalInputValue(
+          els.normalizeIntervalInput.value,
+          els.intervalInput.value
+        );
+        return {
+          source: els.normalizeSourceSelect.value || "binance",
+          data_version: els.normalizeDataVersionInput.value.trim(),
+          output_format: els.normalizeOutputFormatSelect.value || "auto",
+          intervals: configuredIntervals.join(","),
+        };
+      }
+
+      async function handleNormalizeAll() {
+        const config = currentNormalizeConfig();
+        if (!config.data_version) {
+          setStatus("data_version 不能为空", true);
+          return;
+        }
+        try {
+          await createNormalizeJob(config);
+        } catch (error) {
+          setStatus(error.message || "创建标准化任务失败", true);
+        }
+      }
+
+      async function handleNormalizeSymbol(symbol, intervals) {
+        const config = currentNormalizeConfig();
+        if (!config.data_version) {
+          setStatus("data_version 不能为空", true);
+          return;
+        }
+        try {
+          await createNormalizeJob({
+            ...config,
+            symbol,
+            intervals: config.intervals || intervals,
+          });
+        } catch (error) {
+          setStatus(error.message || "创建标准化任务失败", true);
+        }
+      }
+
+      async function handleLoadDuckdb() {
+        const dataVersion = state.selectedDuckdbDataVersion || els.duckdbDataVersionSelect.value;
+        if (!dataVersion) {
+          setStatus("请先选择一个 normalized data version", true);
+          return;
+        }
+
+        try {
+          await createDuckdbLoadJob({
+            data_version: dataVersion,
+            intervals: els.duckdbIntervalInput.value.trim() || null,
+          });
+        } catch (error) {
+          setStatus(error.message || "创建 DuckDB 装载任务失败", true);
+        }
+      }
+
       async function switchPage(page) {
         if (!page) {
           return;
@@ -2183,6 +3205,11 @@
         renderAll();
         if (page === "data-sources" && !state.remoteMeta) {
           await loadSourcePairs();
+          renderAll();
+          return;
+        }
+        if (page === "charting-library") {
+          await loadDuckdbSymbols();
           renderAll();
         }
       }
@@ -2235,6 +3262,9 @@
       });
 
       els.uploadCurrencyIconButton.addEventListener("click", handleUploadCurrencyIcon);
+      els.normalizeAllButton.addEventListener("click", handleNormalizeAll);
+      els.loadDuckdbButton.addEventListener("click", handleLoadDuckdb);
+      els.loadChartButton.addEventListener("click", loadChartWidget);
 
       els.tradeableOnly.addEventListener("change", async () => {
         setStatus(`正在刷新 ${SOURCE_LABELS[currentSource()]} 交易对...`);
@@ -2307,14 +3337,90 @@
         }
       });
 
+      els.duckdbRows.addEventListener("click", async (event) => {
+        const button = event.target.closest("button[data-action='open-chart']");
+        if (!button) {
+          return;
+        }
+
+        const dataVersion = button.getAttribute("data-version");
+        const interval = button.getAttribute("data-interval");
+        const symbol = button.getAttribute("data-symbol");
+        if (!dataVersion || !interval || !symbol) {
+          return;
+        }
+
+        const targetUrl = buildChartPageUrl({ dataVersion, interval, symbol });
+        window.open(targetUrl, "_blank", "noopener,noreferrer");
+      });
+
+      els.normalizeRows.addEventListener("click", async (event) => {
+        const button = event.target.closest("button[data-action]");
+        if (!button) {
+          return;
+        }
+        const action = button.getAttribute("data-action");
+        if (action !== "normalize-row") {
+          return;
+        }
+        const symbol = button.getAttribute("data-symbol");
+        if (!symbol) {
+          return;
+        }
+        await handleNormalizeSymbol(symbol, button.getAttribute("data-intervals") || "");
+      });
+
+      els.normalizeDataVersionInput.addEventListener("input", renderAll);
+      els.normalizeOutputFormatSelect.addEventListener("change", renderAll);
+      els.normalizeSourceSelect.addEventListener("change", renderAll);
+      els.normalizeIntervalInput.addEventListener("input", renderAll);
+
+      els.duckdbDataVersionSelect.addEventListener("change", () => {
+        state.selectedDuckdbDataVersion = els.duckdbDataVersionSelect.value || "";
+        renderAll();
+      });
+
+      els.chartDataVersionSelect.addEventListener("change", async () => {
+        state.selectedChartDataVersion = els.chartDataVersionSelect.value || "";
+        state.selectedChartInterval = "";
+        state.selectedChartSymbol = "";
+        destroyChartWidget();
+        await loadDuckdbSymbols();
+        renderAll();
+      });
+
+      els.chartIntervalSelect.addEventListener("change", async () => {
+        state.selectedChartInterval = els.chartIntervalSelect.value || "";
+        state.selectedChartSymbol = "";
+        destroyChartWidget();
+        await loadDuckdbSymbols();
+        renderAll();
+      });
+
+      els.chartSymbolSelect.addEventListener("change", () => {
+        state.selectedChartSymbol = els.chartSymbolSelect.value || "";
+        destroyChartWidget();
+        renderAll();
+      });
+
       setInterval(() => {
-        loadJobs({ refreshLocalOnChange: true })
-          .then(() => {
+        Promise.all([
+          loadJobs({ refreshLocalOnChange: true }),
+          loadNormalizeJobs(),
+          loadDuckdbLoadJobs(),
+          loadNormalizedDatasets(),
+          loadDuckdbStatus(),
+        ])
+          .then(async () => {
+            if (state.selectedPage === "charting-library") {
+              await loadDuckdbSymbols();
+            }
             renderAll();
           })
           .catch(() => {});
-      }, 4000);
+      }, 5000);
 
+      initializeStateFromUrl();
       els.endDateInput.value = toLocalDateValue(new Date());
       bootstrapApp();
     </script>

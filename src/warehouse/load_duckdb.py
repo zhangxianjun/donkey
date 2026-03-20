@@ -115,13 +115,36 @@ def discover_normalized_files(
     return discovered
 
 
-def import_duckdb() -> Any:
+def local_site_packages(repo_root: Path) -> list[Path]:
+    venv_root = repo_root / ".venv"
+    if not venv_root.exists():
+        return []
+
+    candidates = sorted((venv_root / "lib").glob("python*/site-packages"))
+    windows_candidate = venv_root / "Lib" / "site-packages"
+    if windows_candidate.exists():
+        candidates.append(windows_candidate)
+    return [path for path in candidates if path.exists()]
+
+
+def import_duckdb(*, repo_root: Path | None = None) -> Any:
     try:
         return importlib.import_module("duckdb")
     except ImportError as exc:
+        if repo_root is not None:
+            for site_packages in local_site_packages(repo_root):
+                site_packages_str = str(site_packages.resolve())
+                if site_packages_str not in sys.path:
+                    sys.path.insert(0, site_packages_str)
+                try:
+                    return importlib.import_module("duckdb")
+                except ImportError:
+                    continue
+
         raise RuntimeError(
             "DuckDB Python package is required for warehouse loading. "
-            "Create a virtualenv and install with `pip install duckdb`."
+            "Create a project virtualenv and install dependencies with "
+            "`python3 -m venv .venv && ./.venv/bin/python -m pip install -r requirements.txt`."
         ) from exc
 
 
@@ -375,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        duckdb = import_duckdb()
+        duckdb = import_duckdb(repo_root=repo_root)
     except RuntimeError as exc:
         print(f"[warehouse] {exc}", file=sys.stderr)
         return 1

@@ -11,9 +11,11 @@ from unittest.mock import patch
 
 from src.admin.pairs_dashboard import (
     DashboardConfig,
+    DuckDBLoadJob,
     DownloadJob,
     KlineDownloadRequest,
     LocalPair,
+    NormalizeJob,
     PairAdminHTTPServer,
     SourcePair,
     discover_local_pairs,
@@ -95,6 +97,52 @@ class PairsDashboardTests(unittest.TestCase):
             (okx_interval_dir / "run_okx.jsonl").write_text("{}", encoding="utf-8")
 
             config.normalized_root.mkdir(parents=True)
+            normalized_version_dir = config.normalized_root / "v1"
+            normalized_version_dir.mkdir(parents=True)
+            (normalized_version_dir / "market_ohlcv_1h.jsonl").write_text(
+                json.dumps(
+                    {
+                        "ts": "2026-03-18T00:00:00.000Z",
+                        "symbol": "BTCUSDT",
+                        "exchange": "binance",
+                        "market_type": "spot",
+                        "interval": "1h",
+                        "open": 100,
+                        "high": 110,
+                        "low": 90,
+                        "close": 105,
+                        "volume": 123.45,
+                        "quote_volume": 1000.0,
+                        "trade_count": 50,
+                        "source_file": "data/raw/binance/spot/BTCUSDT/1h/run_a.jsonl",
+                        "data_version": "v1",
+                        "created_at": "2026-03-18T01:00:00Z",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (normalized_version_dir / "normalize_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "data_version": "v1",
+                        "output_format": "jsonl",
+                        "created_at": "2026-03-20T00:00:00Z",
+                        "raw_file_count": 1,
+                        "interval_outputs": [
+                            {
+                                "interval": "1h",
+                                "output_path": str(normalized_version_dir / "market_ohlcv_1h.jsonl"),
+                                "row_count": 1,
+                                "source_file_count": 1,
+                                "duplicate_rows_removed": 0,
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             config.logs_root.mkdir(parents=True)
             (config.logs_root / "admin.log").write_text("ok", encoding="utf-8")
             config.quant_db_path.parent.mkdir(parents=True)
@@ -161,7 +209,7 @@ class PairsDashboardTests(unittest.TestCase):
             server = PairAdminHTTPServer(("127.0.0.1", 0), config=config)
             thread = threading.Thread(
                 target=self.serve_requests,
-                args=(server, 16),
+                args=(server, 30),
                 daemon=True,
             )
             thread.start()
@@ -189,6 +237,26 @@ class PairsDashboardTests(unittest.TestCase):
                 created_at="2026-03-20T00:00:00Z",
             )
 
+            normalize_job = NormalizeJob(
+                job_id="norm_123456",
+                source="binance",
+                symbols=["BTCUSDT"],
+                intervals=["1h"],
+                data_version="v1",
+                output_format="jsonl",
+                status="queued",
+                created_at="2026-03-20T00:00:00Z",
+            )
+
+            duckdb_job = DuckDBLoadJob(
+                job_id="duck_123456",
+                data_version="v1",
+                intervals=["1h"],
+                status="queued",
+                created_at="2026-03-20T00:00:00Z",
+                db_path=str(config.quant_db_path),
+            )
+
             try:
                 host, port = server.server_address
                 base_url = f"http://{host}:{port}"
@@ -204,6 +272,87 @@ class PairsDashboardTests(unittest.TestCase):
                     server.download_jobs,
                     "list_jobs",
                     return_value=[job],
+                ), patch.object(
+                    server.normalize_jobs,
+                    "create_job",
+                    return_value=normalize_job,
+                ) as mocked_normalize_create, patch.object(
+                    server.normalize_jobs,
+                    "list_jobs",
+                    return_value=[normalize_job],
+                ), patch.object(
+                    server.duckdb_load_jobs,
+                    "create_job",
+                    return_value=duckdb_job,
+                ) as mocked_duckdb_create, patch.object(
+                    server.duckdb_load_jobs,
+                    "list_jobs",
+                    return_value=[duckdb_job],
+                ), patch(
+                    "src.admin.pairs_dashboard.query_duckdb_overview",
+                    return_value={
+                        "db_path": str(config.quant_db_path),
+                        "db_exists": True,
+                        "duckdb_available": True,
+                        "table_exists": True,
+                        "total_rows": 1,
+                        "versions": [
+                            {
+                                "data_version": "v1",
+                                "interval": "1h",
+                                "row_count": 1,
+                                "symbol_count": 1,
+                                "first_ts": "2026-03-18T00:00:00Z",
+                                "last_ts": "2026-03-18T00:00:00Z",
+                            }
+                        ],
+                        "symbols": ["BTCUSDT"],
+                        "intervals": ["1h"],
+                        "charting_library": {
+                            "root": "charting_library",
+                            "bundle_path": "charting_library/charting_library.js",
+                            "bundle_exists": False,
+                            "fetched_at": "2026-03-20T00:00:00Z",
+                        },
+                        "fetched_at": "2026-03-20T00:00:00Z",
+                    },
+                ), patch(
+                    "src.admin.pairs_dashboard.query_duckdb_symbol_catalog",
+                    return_value={
+                        "count": 1,
+                        "symbols": [
+                            {
+                                "symbol": "BTCUSDT",
+                                "exchange": "binance",
+                                "market_type": "spot",
+                                "row_count": 1,
+                                "first_ts": "2026-03-18T00:00:00Z",
+                                "last_ts": "2026-03-18T00:00:00Z",
+                            }
+                        ],
+                        "data_version": "v1",
+                        "interval": "1h",
+                        "fetched_at": "2026-03-20T00:00:00Z",
+                    },
+                ), patch(
+                    "src.admin.pairs_dashboard.query_market_bars",
+                    return_value={
+                        "symbol": "BTCUSDT",
+                        "interval": "1h",
+                        "data_version": "v1",
+                        "count": 1,
+                        "bars": [
+                            {
+                                "time": 1710720000000,
+                                "open": 100.0,
+                                "high": 110.0,
+                                "low": 90.0,
+                                "close": 105.0,
+                                "volume": 123.45,
+                            }
+                        ],
+                        "fetched_at": "2026-03-20T00:00:00Z",
+                    },
                 ):
                     with urlopen(f"{base_url}/api/source-pairs?source=binance") as response:
                         source_payload = json.loads(response.read().decode("utf-8"))
@@ -263,6 +412,57 @@ class PairsDashboardTests(unittest.TestCase):
 
                     with urlopen(f"{base_url}/api/download-jobs") as response:
                         jobs_payload = json.loads(response.read().decode("utf-8"))
+
+                    with urlopen(f"{base_url}/api/normalized-datasets") as response:
+                        normalized_payload = json.loads(response.read().decode("utf-8"))
+
+                    normalize_request = Request(
+                        f"{base_url}/api/normalize",
+                        data=json.dumps(
+                            {
+                                "source": "binance",
+                                "symbol": "BTCUSDT",
+                                "intervals": "1h",
+                                "data_version": "v1",
+                                "output_format": "jsonl",
+                            }
+                        ).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urlopen(normalize_request) as response:
+                        normalize_payload = json.loads(response.read().decode("utf-8"))
+
+                    with urlopen(f"{base_url}/api/normalize-jobs") as response:
+                        normalize_jobs_payload = json.loads(response.read().decode("utf-8"))
+
+                    with urlopen(f"{base_url}/api/duckdb-status") as response:
+                        duckdb_status_payload = json.loads(response.read().decode("utf-8"))
+
+                    with urlopen(f"{base_url}/api/duckdb-symbols?data_version=v1&interval=1h") as response:
+                        duckdb_symbols_payload = json.loads(response.read().decode("utf-8"))
+
+                    duckdb_request = Request(
+                        f"{base_url}/api/load-duckdb",
+                        data=json.dumps(
+                            {
+                                "data_version": "v1",
+                                "intervals": "1h",
+                            }
+                        ).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urlopen(duckdb_request) as response:
+                        duckdb_load_payload = json.loads(response.read().decode("utf-8"))
+
+                    with urlopen(f"{base_url}/api/duckdb-load-jobs") as response:
+                        duckdb_jobs_payload = json.loads(response.read().decode("utf-8"))
+
+                    with urlopen(
+                        f"{base_url}/api/chart-bars?symbol=BTCUSDT&interval=1h&data_version=v1"
+                    ) as response:
+                        chart_bars_payload = json.loads(response.read().decode("utf-8"))
 
                     with urlopen(f"{base_url}/") as response:
                         html = response.read().decode("utf-8")
@@ -334,6 +534,8 @@ class PairsDashboardTests(unittest.TestCase):
         self.assertEqual(settings_payload["local_trading_pair_count"], 1)
         self.assertEqual(settings_payload["currency_icon_count"], 1)
         self.assertEqual(settings_payload["currency_icon_missing_count"], 1)
+        self.assertEqual(settings_payload["normalize_job_count"], 1)
+        self.assertEqual(settings_payload["duckdb_load_job_count"], 1)
 
         self.assertEqual(icon_payload["available_count"], 1)
         self.assertEqual(icon_payload["missing_count"], 1)
@@ -354,10 +556,23 @@ class PairsDashboardTests(unittest.TestCase):
 
         self.assertEqual(jobs_payload["count"], 1)
         self.assertEqual(jobs_payload["jobs"][0]["job_id"], "job_123456")
+        self.assertEqual(normalized_payload["version_count"], 1)
+        self.assertEqual(normalized_payload["files"][0]["interval"], "1h")
+        self.assertEqual(normalize_payload["job"]["job_id"], "norm_123456")
+        self.assertEqual(normalize_jobs_payload["count"], 1)
+        self.assertEqual(duckdb_status_payload["total_rows"], 1)
+        self.assertEqual(duckdb_symbols_payload["symbols"][0]["symbol"], "BTCUSDT")
+        self.assertEqual(duckdb_load_payload["job"]["job_id"], "duck_123456")
+        self.assertEqual(duckdb_jobs_payload["count"], 1)
+        self.assertEqual(chart_bars_payload["count"], 1)
+        self.assertEqual(chart_bars_payload["bars"][0]["close"], 105.0)
         self.assertIn("首页", html)
         self.assertIn("数据源", html)
         self.assertIn("数据管理", html)
         self.assertIn("系统设置", html)
+        self.assertIn("格式数据", html)
+        self.assertIn("DuckDB", html)
+        self.assertIn("K线图表", html)
         self.assertNotIn("刷新全部", html)
         self.assertIn('href="/favicon.svg"', html)
         self.assertIn('src="/icon.svg"', html)
@@ -368,6 +583,8 @@ class PairsDashboardTests(unittest.TestCase):
         self.assertEqual(icon_payload_after_upload["missing_count"], 0)
         self.assertEqual(eth_icon_content_type, "image/svg+xml")
         self.assertIn("ETH", eth_icon)
+        mocked_normalize_create.assert_called_once()
+        mocked_duckdb_create.assert_called_once()
 
 
 if __name__ == "__main__":
