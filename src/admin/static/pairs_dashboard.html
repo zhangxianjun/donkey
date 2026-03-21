@@ -1467,7 +1467,7 @@
           <p class="nav-group-title">数据管理</p>
           <div class="nav-list">
             <button class="nav-button" type="button" data-page="local-data">
-              <span class="nav-label">本地数据</span>
+              <span class="nav-label">原始数据</span>
             </button>
             <button class="nav-button" type="button" data-page="normalized-data">
               <span class="nav-label">格式数据</span>
@@ -1693,6 +1693,11 @@
               <div class="toolbar">
                 <div class="toolbar-row local-data-toolbar">
                   <select id="localSourceFilter"></select>
+                  <select id="localHiddenFilter">
+                    <option value="visible">未隐藏</option>
+                    <option value="all">全部</option>
+                    <option value="hidden">已隐藏</option>
+                  </select>
                   <input id="localSearch" type="search" placeholder="搜索 symbol / interval" />
                   <button id="openSourceModalButton" type="button">添加交易对</button>
                 </div>
@@ -1781,6 +1786,15 @@
             <article class="card">
               <h3>Raw 候选</h3>
               <p class="section-copy">从“本地数据”页发现的 raw 数据中选择交易对并执行标准化。</p>
+              <div class="toolbar">
+                <div class="toolbar-row local-data-toolbar">
+                  <select id="normalizeHiddenFilter">
+                    <option value="visible">未隐藏</option>
+                    <option value="all">全部</option>
+                    <option value="hidden">已隐藏</option>
+                  </select>
+                </div>
+              </div>
               <div class="table-shell">
                 <div class="table-scroll">
                   <table>
@@ -1861,6 +1875,15 @@
             <article class="card">
               <h3>已装载数据</h3>
               <p class="section-copy">按 data version / interval / symbol 展示 `market_ohlcv` 表内的已装载交易对，并可直接打开新标签查看 K 线。</p>
+              <div class="toolbar">
+                <div class="toolbar-row local-data-toolbar">
+                  <select id="duckdbHiddenFilter">
+                    <option value="visible">未隐藏</option>
+                    <option value="all">全部</option>
+                    <option value="hidden">已隐藏</option>
+                  </select>
+                </div>
+              </div>
               <div class="table-shell">
                 <div class="table-scroll">
                   <table>
@@ -2162,6 +2185,7 @@
         remoteError: "",
         remoteCountsBySource: {},
         remoteErrorsBySource: {},
+        pairPreferences: {},
         manualPairs: [],
         localPairs: [],
         localMeta: null,
@@ -2229,6 +2253,7 @@
         manualList: document.getElementById("manualList"),
         localMeta: document.getElementById("localMeta"),
         localSourceFilter: document.getElementById("localSourceFilter"),
+        localHiddenFilter: document.getElementById("localHiddenFilter"),
         localSearch: document.getElementById("localSearch"),
         localRows: document.getElementById("localRows"),
         strategyRows: document.getElementById("strategyRows"),
@@ -2265,6 +2290,7 @@
         normalizeOutputFormatSelect: document.getElementById("normalizeOutputFormatSelect"),
         normalizeSourceSelect: document.getElementById("normalizeSourceSelect"),
         normalizeIntervalInput: document.getElementById("normalizeIntervalInput"),
+        normalizeHiddenFilter: document.getElementById("normalizeHiddenFilter"),
         normalizeAllButton: document.getElementById("normalizeAllButton"),
         normalizeRows: document.getElementById("normalizeRows"),
         normalizedDatasetRows: document.getElementById("normalizedDatasetRows"),
@@ -2273,6 +2299,7 @@
         duckdbMeta: document.getElementById("duckdbMeta"),
         duckdbDataVersionSelect: document.getElementById("duckdbDataVersionSelect"),
         duckdbIntervalInput: document.getElementById("duckdbIntervalInput"),
+        duckdbHiddenFilter: document.getElementById("duckdbHiddenFilter"),
         loadDuckdbButton: document.getElementById("loadDuckdbButton"),
         duckdbOverviewGrid: document.getElementById("duckdbOverviewGrid"),
         duckdbRows: document.getElementById("duckdbRows"),
@@ -2733,6 +2760,62 @@
         return state.selectedLocalSource || "all";
       }
 
+      function pairPreferenceKey(kind, parts) {
+        if (kind === "local" || kind === "normalized") {
+          return `${kind}:${String(parts.source || "").trim().toLowerCase()}:${String(parts.symbol || "").trim().toUpperCase()}`;
+        }
+        if (kind === "duckdb") {
+          return `duckdb:${String(parts.dataVersion || "").trim().toLowerCase()}:${String(parts.interval || "").trim().toLowerCase()}:${String(parts.symbol || "").trim().toUpperCase()}`;
+        }
+        throw new Error(`Unsupported preference kind: ${kind}`);
+      }
+
+      function getPairPreference(kind, parts) {
+        const key = pairPreferenceKey(kind, parts);
+        return state.pairPreferences[key] || { kind, key, hidden: false, pinned: false };
+      }
+
+      function hiddenFilterMatches(filterValue, hidden) {
+        if (filterValue === "hidden") {
+          return hidden;
+        }
+        if (filterValue === "all") {
+          return true;
+        }
+        return !hidden;
+      }
+
+      function comparePinnedItems(left, right) {
+        if (left.preference.pinned !== right.preference.pinned) {
+          return left.preference.pinned ? -1 : 1;
+        }
+        if (left.preference.hidden !== right.preference.hidden) {
+          return left.preference.hidden ? 1 : -1;
+        }
+        return 0;
+      }
+
+      function renderPreferenceBadges(preference) {
+        const badges = [];
+        if (preference.pinned) {
+          badges.push('<span class="pill info">已置顶</span>');
+        }
+        if (preference.hidden) {
+          badges.push('<span class="pill warn">已隐藏</span>');
+        }
+        return badges.length ? `<div class="pill-row">${badges.join("")}</div>` : "";
+      }
+
+      function renderPreferenceButtons(kind, parts, preference) {
+        const dataset = Object.entries(parts)
+          .map(([name, value]) => `data-${name.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}="${escapeHtml(value)}"`)
+          .join(" ");
+        return `
+          <button class="button-secondary button-small" type="button" data-action="toggle-pin" data-kind="${escapeHtml(kind)}" ${dataset}>${preference.pinned ? "取消置顶" : "置顶"}</button>
+          <button class="button-secondary button-small" type="button" data-action="toggle-hide" data-kind="${escapeHtml(kind)}" ${dataset}>${preference.hidden ? "取消隐藏" : "隐藏"}</button>
+        `;
+      }
+
       function getQuoteAssetValue() {
         const value = els.quoteAssetInput.value.trim().toUpperCase();
         return value || "USDT";
@@ -3182,9 +3265,16 @@
 
         const filterSource = currentLocalFilterSource();
         const searchText = els.localSearch.value.trim().toUpperCase();
+        const hiddenFilter = els.localHiddenFilter.value || "visible";
         const activeSymbols = new Set(activeJobs().map((job) => job.symbol));
-        const filtered = state.localPairs.filter((pair) => {
+        const filtered = state.localPairs.map((pair) => {
+          const preference = getPairPreference("local", { source: pair.source, symbol: pair.symbol });
+          return { pair, preference };
+        }).filter(({ pair, preference }) => {
           if (filterSource !== "all" && pair.source !== filterSource) {
+            return false;
+          }
+          if (!hiddenFilterMatches(hiddenFilter, preference.hidden)) {
             return false;
           }
           if (!searchText) {
@@ -3195,6 +3285,12 @@
             pair.display_symbol.includes(searchText) ||
             pair.intervals.join(" ").toUpperCase().includes(searchText)
           );
+        }).sort((left, right) => {
+          const preferenceOrder = comparePinnedItems(left, right);
+          if (preferenceOrder !== 0) {
+            return preferenceOrder;
+          }
+          return left.pair.source.localeCompare(right.pair.source) || left.pair.symbol.localeCompare(right.pair.symbol);
         });
 
         if (filtered.length === 0) {
@@ -3202,7 +3298,7 @@
           return;
         }
 
-        els.localRows.innerHTML = filtered.map((pair) => {
+        els.localRows.innerHTML = filtered.map(({ pair, preference }) => {
           const canDownload = pair.source === "binance";
           const active = canDownload && activeSymbols.has(pair.symbol);
           const intervalPills = pair.intervals.map((interval) => `<span class="pill info">${escapeHtml(interval)}</span>`).join("");
@@ -3214,12 +3310,14 @@
                   <div class="symbol-main">${escapeHtml(pair.display_symbol)}</div>
                   <div class="subline">${escapeHtml(pair.symbol)}</div>
                   <div class="subline">周期 ${escapeHtml(pair.interval_count)}</div>
+                  ${renderPreferenceBadges(preference)}
                 </div>
               </td>
               <td><div class="pill-row">${intervalPills}</div></td>
               <td class="subline">jsonl ${escapeHtml(pair.data_file_count)} / meta ${escapeHtml(pair.metadata_file_count)} / checkpoint ${escapeHtml(pair.checkpoint_count)}</td>
               <td class="subline">${escapeHtml(formatTime(pair.last_updated))}</td>
               <td class="pill-row">
+                ${renderPreferenceButtons("local", { source: pair.source, symbol: pair.symbol }, preference)}
                 ${
                   canDownload
                     ? `<button class="button-small" type="button" data-action="download-local" data-symbol="${escapeHtml(pair.symbol)}" ${active ? "disabled" : ""}>${active ? "下载中" : "下载数据"}</button>
@@ -3266,7 +3364,21 @@
 
       function renderNormalizedData() {
         const normalizeSource = els.normalizeSourceSelect.value || "binance";
-        const candidates = state.localPairs.filter((pair) => pair.source === normalizeSource);
+        const hiddenFilter = els.normalizeHiddenFilter.value || "visible";
+        const candidates = state.localPairs
+          .filter((pair) => pair.source === normalizeSource)
+          .map((pair) => ({
+            pair,
+            preference: getPairPreference("normalized", { source: pair.source, symbol: pair.symbol }),
+          }))
+          .filter(({ preference }) => hiddenFilterMatches(hiddenFilter, preference.hidden))
+          .sort((left, right) => {
+            const preferenceOrder = comparePinnedItems(left, right);
+            if (preferenceOrder !== 0) {
+              return preferenceOrder;
+            }
+            return left.pair.symbol.localeCompare(right.pair.symbol);
+          });
         if (!state.normalizedMeta) {
           els.normalizedMeta.textContent = "格式数据尚未加载。";
         } else {
@@ -3282,7 +3394,7 @@
               .map((job) => job.data_version)
           );
           const requestedDataVersion = els.normalizeDataVersionInput.value.trim();
-          els.normalizeRows.innerHTML = candidates.map((pair) => {
+          els.normalizeRows.innerHTML = candidates.map(({ pair, preference }) => {
             const canNormalize = pair.source === "binance";
             const active = requestedDataVersion && activeDataVersions.has(requestedDataVersion);
             return `
@@ -3292,12 +3404,14 @@
                   <div class="symbol-cell">
                     <div class="symbol-main">${escapeHtml(pair.display_symbol)}</div>
                     <div class="subline">${escapeHtml(pair.symbol)}</div>
+                    ${renderPreferenceBadges(preference)}
                   </div>
                 </td>
                 <td><div class="pill-row">${pair.intervals.map((interval) => `<span class="pill info">${escapeHtml(interval)}</span>`).join("")}</div></td>
                 <td class="subline">jsonl ${escapeHtml(pair.data_file_count)} / meta ${escapeHtml(pair.metadata_file_count)}</td>
                 <td class="subline">${escapeHtml(formatTime(pair.last_updated))}</td>
                 <td class="pill-row">
+                  ${renderPreferenceButtons("normalized", { source: pair.source, symbol: pair.symbol }, preference)}
                   ${
                     canNormalize
                       ? `<button class="button-small" type="button" data-action="normalize-row" data-source="${escapeHtml(pair.source)}" data-symbol="${escapeHtml(pair.symbol)}" data-intervals="${escapeHtml(pair.intervals.join(","))}" ${active ? "disabled" : ""}>${active ? "处理中" : "格式化"}</button>`
@@ -3376,13 +3490,34 @@
           `;
         }).join("");
 
-        const symbolRows = Array.isArray(state.duckdbStatus.symbol_rows) ? state.duckdbStatus.symbol_rows : [];
+        const hiddenFilter = els.duckdbHiddenFilter.value || "visible";
+        const symbolRows = (Array.isArray(state.duckdbStatus.symbol_rows) ? state.duckdbStatus.symbol_rows : [])
+          .map((entry) => ({
+            entry,
+            preference: getPairPreference("duckdb", {
+              dataVersion: entry.data_version,
+              interval: entry.interval,
+              symbol: entry.symbol,
+            }),
+          }))
+          .filter(({ preference }) => hiddenFilterMatches(hiddenFilter, preference.hidden))
+          .sort((left, right) => {
+            const preferenceOrder = comparePinnedItems(left, right);
+            if (preferenceOrder !== 0) {
+              return preferenceOrder;
+            }
+            return (
+              left.entry.data_version.localeCompare(right.entry.data_version) ||
+              left.entry.interval.localeCompare(right.entry.interval) ||
+              left.entry.symbol.localeCompare(right.entry.symbol)
+            );
+          });
         if (!symbolRows.length) {
           els.duckdbRows.innerHTML = '<tr><td class="empty" colspan="6">DuckDB 中还没有装载数据</td></tr>';
           return;
         }
 
-        els.duckdbRows.innerHTML = symbolRows.map((entry) => {
+        els.duckdbRows.innerHTML = symbolRows.map(({ entry, preference }) => {
           return `
             <tr>
               <td><div class="symbol-main">${escapeHtml(entry.data_version)}</div></td>
@@ -3391,11 +3526,13 @@
                 <div class="symbol-cell">
                   <div class="symbol-main">${escapeHtml(entry.symbol)}</div>
                   <div class="subline">${escapeHtml(entry.exchange)} / ${escapeHtml(entry.market_type)}</div>
+                  ${renderPreferenceBadges(preference)}
                 </div>
               </td>
               <td class="subline">${escapeHtml(entry.row_count)}</td>
               <td class="subline">${escapeHtml(entry.first_ts || "-")}<br />${escapeHtml(entry.last_ts || "-")}</td>
               <td class="pill-row">
+                ${renderPreferenceButtons("duckdb", { dataVersion: entry.data_version, interval: entry.interval, symbol: entry.symbol }, preference)}
                 <button
                   class="button-small"
                   type="button"
@@ -4028,12 +4165,14 @@
           ["Python", state.settings.python_version],
           ["日志文件数", String(state.settings.log_count)],
           ["本地交易数", String(state.settings.local_trading_pair_count)],
+          ["列表偏好数", String(state.settings.pair_preference_count)],
           ["下载任务数", String(state.settings.download_job_count)],
           ["标准化任务数", String(state.settings.normalize_job_count)],
           ["DuckDB 装载任务数", String(state.settings.duckdb_load_job_count)],
           ["回测任务数", String(state.settings.backtest_job_count)],
           ["Charting Bundle", state.settings.charting_library_bundle_exists ? "已就绪" : "按需缓存"],
           ["策略根目录", (state.settings.strategy_roots || []).join(" | ") || "未配置"],
+          ["偏好存储", state.settings.pair_preferences_store_path],
         ];
 
         els.settingsGrid.innerHTML = settingsItems.map(([label, value]) => {
@@ -4145,6 +4284,13 @@
       async function loadManualPairs() {
         const payload = await requestJson("/api/local-trading-pairs");
         state.manualPairs = payload.pairs || [];
+      }
+
+      async function loadPairPreferences() {
+        const payload = await requestJson("/api/pair-preferences");
+        state.pairPreferences = Object.fromEntries(
+          (payload.entries || []).map((entry) => [entry.key, entry])
+        );
       }
 
       async function loadLocalPairs() {
@@ -4284,6 +4430,7 @@
         try {
           await Promise.all([
             loadSourcePairs(),
+            loadPairPreferences(),
             loadManualPairs(),
             loadLocalPairs(),
             loadStrategies(),
@@ -4444,6 +4591,19 @@
         await loadStrategyConfig(response.strategy_path);
         renderAll();
         setStatus(`已生成新策略 ${shortPath(response.strategy_path)}`);
+        return response;
+      }
+
+      async function updatePairPreference(payload) {
+        const response = await requestJson("/api/pair-preferences", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        if (response.entry) {
+          state.pairPreferences[response.entry.key] = response.entry;
+        } else if (payload.kind && payload.key) {
+          delete state.pairPreferences[payload.key];
+        }
         return response;
       }
 
@@ -4769,6 +4929,51 @@
         }
       }
 
+      async function handleTogglePairPreference(button) {
+        const kind = button.getAttribute("data-kind");
+        if (!kind) {
+          return false;
+        }
+        const action = button.getAttribute("data-action");
+        const payload = { kind };
+        if (kind === "local" || kind === "normalized") {
+          payload.key = pairPreferenceKey(kind, {
+            source: button.getAttribute("data-source"),
+            symbol: button.getAttribute("data-symbol"),
+          });
+        } else if (kind === "duckdb") {
+          payload.key = pairPreferenceKey(kind, {
+            dataVersion: button.getAttribute("data-data-version"),
+            interval: button.getAttribute("data-interval"),
+            symbol: button.getAttribute("data-symbol"),
+          });
+        } else {
+          return false;
+        }
+
+        const current = state.pairPreferences[payload.key] || { hidden: false, pinned: false };
+        if (action === "toggle-hide") {
+          payload.hidden = !current.hidden;
+        } else if (action === "toggle-pin") {
+          payload.pinned = !current.pinned;
+        } else {
+          return false;
+        }
+
+        try {
+          await updatePairPreference(payload);
+          renderAll();
+          setStatus(
+            action === "toggle-hide"
+              ? `${payload.hidden ? "已隐藏" : "已取消隐藏"} ${payload.key}`
+              : `${payload.pinned ? "已置顶" : "已取消置顶"} ${payload.key}`
+          );
+        } catch (error) {
+          setStatus(error.message || "更新列表偏好失败", true);
+        }
+        return true;
+      }
+
       async function handleAddStrategyRoot() {
         const rootPath = els.strategyRootInput.value.trim();
         if (!rootPath) {
@@ -4963,6 +5168,7 @@
       els.sourceSearch.addEventListener("input", handleSourceSearchInput);
       els.sourceModalSearch.addEventListener("input", handleSourceSearchInput);
       els.localSearch.addEventListener("input", renderLocalData);
+      els.localHiddenFilter.addEventListener("change", renderLocalData);
       els.currencyIconSearch.addEventListener("input", renderCurrencyIcons);
       els.openSourceModalButton.addEventListener("click", openSourceModal);
       els.closeSourceModalButton.addEventListener("click", closeSourceModal);
@@ -4971,6 +5177,8 @@
         state.selectedLocalSource = els.localSourceFilter.value || "all";
         renderAll();
       });
+      els.normalizeHiddenFilter.addEventListener("change", renderNormalizedData);
+      els.duckdbHiddenFilter.addEventListener("change", renderDuckdbOverview);
 
       els.currencyIconFileInput.addEventListener("change", () => {
         const file = els.currencyIconFileInput.files && els.currencyIconFileInput.files[0];
@@ -5058,6 +5266,9 @@
       els.localRows.addEventListener("click", async (event) => {
         const button = event.target.closest("button[data-action]");
         if (!button) {
+          return;
+        }
+        if (await handleTogglePairPreference(button)) {
           return;
         }
         const action = button.getAttribute("data-action");
@@ -5148,8 +5359,14 @@
       });
 
       els.duckdbRows.addEventListener("click", async (event) => {
-        const button = event.target.closest("button[data-action='open-chart']");
+        const button = event.target.closest("button[data-action]");
         if (!button) {
+          return;
+        }
+        if (await handleTogglePairPreference(button)) {
+          return;
+        }
+        if (button.getAttribute("data-action") !== "open-chart") {
           return;
         }
 
@@ -5167,6 +5384,9 @@
       els.normalizeRows.addEventListener("click", async (event) => {
         const button = event.target.closest("button[data-action]");
         if (!button) {
+          return;
+        }
+        if (await handleTogglePairPreference(button)) {
           return;
         }
         const action = button.getAttribute("data-action");

@@ -58,6 +58,7 @@ DEFAULT_LOGS_ROOT = Path("logs")
 DEFAULT_QUANT_DB_PATH = Path("db/quant.duckdb")
 DEFAULT_EXPERIMENTS_DB_PATH = Path("db/experiments.duckdb")
 DEFAULT_LOCAL_TRADING_STORE = Path("data/admin/local_trading_pairs.json")
+DEFAULT_PAIR_PREFERENCES_STORE = Path("data/admin/pair_preferences.json")
 DEFAULT_CURRENCY_ICON_ROOT = Path("data/admin/currency_icons")
 DEFAULT_QUOTE_ASSET = "USDT"
 DEFAULT_RETRY_JITTER_SECONDS = 0.5
@@ -196,6 +197,7 @@ class DashboardConfig:
     quant_db_path: Path
     experiments_db_path: Path
     local_trading_store_path: Path
+    pair_preferences_store_path: Path
     currency_icon_root: Path
     exchange_info_base_url: str
     market_data_base_url: str
@@ -346,6 +348,23 @@ class ManualTradingPairRequest:
     note: str | None
 
 
+@dataclass(frozen=True)
+class PairPreferenceEntry:
+    kind: str
+    key: str
+    hidden: bool
+    pinned: bool
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class PairPreferenceUpdateRequest:
+    kind: str
+    key: str
+    hidden: bool | None
+    pinned: bool | None
+
+
 class DownloadJobConflictError(RuntimeError):
     """Raised when a conflicting background download job already exists."""
 
@@ -399,6 +418,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--local-trading-store",
         default=str(DEFAULT_LOCAL_TRADING_STORE),
         help="JSON storage path for manually added local trading pairs.",
+    )
+    parser.add_argument(
+        "--pair-preferences-store",
+        default=str(DEFAULT_PAIR_PREFERENCES_STORE),
+        help="JSON storage path for pinned/hidden pair preferences.",
     )
     parser.add_argument(
         "--currency-icon-root",
@@ -2915,6 +2939,147 @@ def parse_manual_trading_pair_payload(payload: Any) -> ManualTradingPairRequest:
     )
 
 
+PAIR_PREFERENCE_KIND_RULES: dict[str, tuple[str, ...]] = {
+    "local": ("source", "symbol"),
+    "normalized": ("source", "symbol"),
+    "duckdb": ("data_version", "interval", "symbol"),
+}
+
+
+def build_pair_preference_key(kind: str, **parts: str) -> str:
+    normalized_kind = kind.strip().lower()
+    if normalized_kind not in PAIR_PREFERENCE_KIND_RULES:
+        raise ValueError("Unsupported pair preference kind.")
+
+    normalized_parts: list[str] = []
+    for name in PAIR_PREFERENCE_KIND_RULES[normalized_kind]:
+        raw_value = str(parts.get(name, "")).strip()
+        if not raw_value:
+            raise ValueError(f"{name} is required for {normalized_kind} preference.")
+        normalized_parts.append(raw_value.upper() if name == "symbol" else raw_value.lower())
+    return ":".join([normalized_kind, *normalized_parts])
+
+
+def normalize_pair_preference_key(kind: str, raw_key: Any) -> str:
+    normalized_kind = str(kind).strip().lower()
+    if normalized_kind not in PAIR_PREFERENCE_KIND_RULES:
+        raise ValueError("Unsupported pair preference kind.")
+
+    key = str(raw_key or "").strip()
+    if not key:
+        raise ValueError("key is required.")
+
+    parts = key.split(":")
+    expected_fields = PAIR_PREFERENCE_KIND_RULES[normalized_kind]
+    if len(parts) != len(expected_fields) + 1 or parts[0].strip().lower() != normalized_kind:
+        raise ValueError(f"key must match {normalized_kind} preference format.")
+
+    field_values = {field: parts[index + 1] for index, field in enumerate(expected_fields)}
+    return build_pair_preference_key(normalized_kind, **field_values)
+
+
+def load_pair_preferences(config: DashboardConfig) -> list[PairPreferenceEntry]:
+    payload = parse_json_file(config.pair_preferences_store_path)
+    items = payload.get("entries", []) if isinstance(payload, dict) else []
+    entries: list[PairPreferenceEntry] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            kind = str(item.get("kind", "")).strip().lower()
+            key = normalize_pair_preference_key(kind, item.get("key"))
+        except ValueError:
+            continue
+        hidden = bool(item.get("hidden", False))
+        pinned = bool(item.get("pinned", False))
+        if not hidden and not pinned:
+            continue
+        entries.append(
+            PairPreferenceEntry(
+                kind=kind,
+                key=key,
+                hidden=hidden,
+                pinned=pinned,
+                updated_at=str(item.get("updated_at", "")) or utc_now_iso(),
+            )
+        )
+    return sorted(entries, key=lambda entry: (entry.kind, entry.key))
+
+
+def save_pair_preferences(config: DashboardConfig, entries: list[PairPreferenceEntry]) -> None:
+    config.pair_preferences_store_path.parent.mkdir(parents=True, exist_ok=True)
+    serializable = {
+        "entries": [
+            {
+                "kind": entry.kind,
+                "key": entry.key,
+                "hidden": entry.hidden,
+                "pinned": entry.pinned,
+                "updated_at": entry.updated_at,
+            }
+            for entry in sorted(entries, key=lambda item: (item.kind, item.key))
+        ]
+    }
+    config.pair_preferences_store_path.write_text(
+        json.dumps(serializable, ensure_ascii=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def parse_pair_preference_payload(payload: Any) -> PairPreferenceUpdateRequest:
+    if not isinstance(payload, dict):
+        raise ValueError("JSON body must be an object.")
+
+    kind = str(payload.get("kind", "")).strip().lower()
+    if kind not in PAIR_PREFERENCE_KIND_RULES:
+        raise ValueError("kind must be one of: local, normalized, duckdb.")
+
+    key = normalize_pair_preference_key(kind, payload.get("key"))
+    hidden = payload.get("hidden")
+    pinned = payload.get("pinned")
+    if hidden is None and pinned is None:
+        raise ValueError("At least one of hidden or pinned must be provided.")
+    if hidden is not None and not isinstance(hidden, bool):
+        raise ValueError("hidden must be a boolean.")
+    if pinned is not None and not isinstance(pinned, bool):
+        raise ValueError("pinned must be a boolean.")
+
+    return PairPreferenceUpdateRequest(
+        kind=kind,
+        key=key,
+        hidden=hidden if isinstance(hidden, bool) else None,
+        pinned=pinned if isinstance(pinned, bool) else None,
+    )
+
+
+def update_pair_preference(
+    config: DashboardConfig,
+    request: PairPreferenceUpdateRequest,
+) -> PairPreferenceEntry | None:
+    entries = load_pair_preferences(config)
+    entry_map = {(entry.kind, entry.key): entry for entry in entries}
+    existing = entry_map.get((request.kind, request.key))
+    hidden = request.hidden if request.hidden is not None else (existing.hidden if existing else False)
+    pinned = request.pinned if request.pinned is not None else (existing.pinned if existing else False)
+
+    if not hidden and not pinned:
+        if existing is not None:
+            entry_map.pop((request.kind, request.key), None)
+            save_pair_preferences(config, list(entry_map.values()))
+        return None
+
+    updated = PairPreferenceEntry(
+        kind=request.kind,
+        key=request.key,
+        hidden=hidden,
+        pinned=pinned,
+        updated_at=utc_now_iso(),
+    )
+    entry_map[(updated.kind, updated.key)] = updated
+    save_pair_preferences(config, list(entry_map.values()))
+    return updated
+
+
 def add_local_trading_pair(
     config: DashboardConfig,
     request: ManualTradingPairRequest,
@@ -3614,6 +3779,9 @@ class PairAdminHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/local-trading-pairs":
             self.handle_local_trading_pairs(parsed.query)
             return
+        if parsed.path == "/api/pair-preferences":
+            self.handle_pair_preferences()
+            return
         if parsed.path == "/api/local-pairs":
             self.handle_local_pairs(parsed.query)
             return
@@ -3668,6 +3836,9 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/local-trading-pairs":
             self.handle_add_local_trading_pair()
+            return
+        if parsed.path == "/api/pair-preferences":
+            self.handle_update_pair_preference()
             return
         if parsed.path == "/api/currency-icons":
             self.handle_upload_currency_icon()
@@ -3753,6 +3924,31 @@ class PairAdminHandler(BaseHTTPRequestHandler):
                 "count": len(pairs),
                 "pairs": [asdict(pair) for pair in pairs],
                 "fetched_at": utc_now_iso(),
+            }
+        )
+
+    def handle_pair_preferences(self) -> None:
+        entries = load_pair_preferences(self.server.config)
+        self.respond_json(
+            {
+                "count": len(entries),
+                "entries": [asdict(entry) for entry in entries],
+                "fetched_at": utc_now_iso(),
+            }
+        )
+
+    def handle_update_pair_preference(self) -> None:
+        try:
+            payload = self.read_json_body()
+            request = parse_pair_preference_payload(payload)
+            entry = update_pair_preference(self.server.config, request)
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self.respond_json(
+            {
+                "message": "Pair preference updated.",
+                "entry": asdict(entry) if entry is not None else None,
             }
         )
 
@@ -3890,6 +4086,7 @@ class PairAdminHandler(BaseHTTPRequestHandler):
                 "quant_db_path": str(self.server.config.quant_db_path),
                 "experiments_db_path": str(self.server.config.experiments_db_path),
                 "local_trading_store_path": str(self.server.config.local_trading_store_path),
+                "pair_preferences_store_path": str(self.server.config.pair_preferences_store_path),
                 "currency_icon_root": str(self.server.config.currency_icon_root),
                 "currency_icon_catalog_path": icon_payload["catalog_path"],
                 "currency_icon_count": icon_payload["available_count"],
@@ -3907,6 +4104,7 @@ class PairAdminHandler(BaseHTTPRequestHandler):
                 "latest_log_path": latest_log_path,
                 "log_count": log_count,
                 "local_trading_pair_count": len(load_local_trading_pairs(self.server.config)),
+                "pair_preference_count": len(load_pair_preferences(self.server.config)),
                 "download_job_count": len(self.server.download_jobs.list_jobs()),
                 "normalize_job_count": len(self.server.normalize_jobs.list_jobs()),
                 "duckdb_load_job_count": len(self.server.duckdb_load_jobs.list_jobs()),
@@ -4279,6 +4477,7 @@ def build_config(args: argparse.Namespace) -> DashboardConfig:
         quant_db_path=DEFAULT_QUANT_DB_PATH.expanduser().resolve(),
         experiments_db_path=DEFAULT_EXPERIMENTS_DB_PATH.expanduser().resolve(),
         local_trading_store_path=Path(args.local_trading_store).expanduser().resolve(),
+        pair_preferences_store_path=Path(args.pair_preferences_store).expanduser().resolve(),
         currency_icon_root=Path(args.currency_icon_root).expanduser().resolve(),
         exchange_info_base_url=args.exchange_info_base_url,
         market_data_base_url=args.market_data_base_url,

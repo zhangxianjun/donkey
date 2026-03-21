@@ -14,6 +14,7 @@ from src.admin.pairs_dashboard import (
     BacktestJob,
     BacktestRunRequest,
     build_strategy_config_payload,
+    build_pair_preference_key,
     clone_strategy_config,
     DashboardConfig,
     DuckDBLoadJob,
@@ -31,6 +32,9 @@ from src.admin.pairs_dashboard import (
     SourcePair,
     discover_strategy_entries,
     discover_local_pairs,
+    load_pair_preferences,
+    parse_pair_preference_payload,
+    update_pair_preference,
 )
 
 
@@ -67,6 +71,7 @@ class PairsDashboardTests(unittest.TestCase):
             quant_db_path=workspace_root / "db" / "quant.duckdb",
             experiments_db_path=workspace_root / "db" / "experiments.duckdb",
             local_trading_store_path=workspace_root / "data" / "admin" / "local_trading_pairs.json",
+            pair_preferences_store_path=workspace_root / "data" / "admin" / "pair_preferences.json",
             currency_icon_root=workspace_root / "data" / "admin" / "currency_icons",
             exchange_info_base_url="https://api.binance.com",
             market_data_base_url="https://data-api.binance.vision",
@@ -363,6 +368,52 @@ class PairsDashboardTests(unittest.TestCase):
 
             self.assertEqual(asset_path.read_bytes(), b"")
 
+    def test_pair_preferences_are_persisted_and_removed_when_cleared(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir)
+            config = self.make_config(workspace_root)
+
+            updated = update_pair_preference(
+                config,
+                parse_pair_preference_payload(
+                    {
+                        "kind": "duckdb",
+                        "key": build_pair_preference_key(
+                            "duckdb",
+                            data_version="v1",
+                            interval="1h",
+                            symbol="BTCUSDT",
+                        ),
+                        "hidden": True,
+                        "pinned": True,
+                    }
+                ),
+            )
+            loaded = load_pair_preferences(config)
+            cleared = update_pair_preference(
+                config,
+                parse_pair_preference_payload(
+                    {
+                        "kind": "duckdb",
+                        "key": build_pair_preference_key(
+                            "duckdb",
+                            data_version="v1",
+                            interval="1h",
+                            symbol="BTCUSDT",
+                        ),
+                        "hidden": False,
+                        "pinned": False,
+                    }
+                ),
+            )
+
+        assert updated is not None
+        self.assertEqual(updated.key, "duckdb:v1:1h:BTCUSDT")
+        self.assertTrue(updated.hidden)
+        self.assertTrue(updated.pinned)
+        self.assertEqual(len(loaded), 1)
+        self.assertIsNone(cleared)
+
     def test_http_endpoints_expose_dashboard_resources(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir)
@@ -490,7 +541,7 @@ class PairsDashboardTests(unittest.TestCase):
             server = PairAdminHTTPServer(("127.0.0.1", 0), config=config)
             thread = threading.Thread(
                 target=self.serve_requests,
-                args=(server, 52),
+                args=(server, 58),
                 daemon=True,
             )
             thread.start()
@@ -688,6 +739,29 @@ class PairsDashboardTests(unittest.TestCase):
                     with urlopen(f"{base_url}/api/local-pairs?source=okx") as response:
                         okx_local_payload = json.loads(response.read().decode("utf-8"))
 
+                    pair_preference_request = Request(
+                        f"{base_url}/api/pair-preferences",
+                        data=json.dumps(
+                            {
+                                "kind": "local",
+                                "key": build_pair_preference_key(
+                                    "local",
+                                    source="binance",
+                                    symbol="BTCUSDT",
+                                ),
+                                "hidden": True,
+                                "pinned": True,
+                            }
+                        ).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urlopen(pair_preference_request) as response:
+                        pair_preference_payload = json.loads(response.read().decode("utf-8"))
+
+                    with urlopen(f"{base_url}/api/pair-preferences") as response:
+                        pair_preferences_payload = json.loads(response.read().decode("utf-8"))
+
                     with urlopen(f"{base_url}/api/strategies") as response:
                         strategy_payload = json.loads(response.read().decode("utf-8"))
 
@@ -878,6 +952,10 @@ class PairsDashboardTests(unittest.TestCase):
         self.assertEqual(okx_local_payload["pairs"][0]["source"], "okx")
         self.assertEqual(okx_local_payload["pairs"][0]["symbol"], "BTCUSDT")
         self.assertEqual(okx_local_payload["pairs"][0]["display_symbol"], "BTC-USDT")
+        self.assertTrue(pair_preference_payload["entry"]["hidden"])
+        self.assertTrue(pair_preference_payload["entry"]["pinned"])
+        self.assertEqual(pair_preferences_payload["count"], 1)
+        self.assertEqual(pair_preferences_payload["entries"][0]["key"], "local:binance:BTCUSDT")
 
         self.assertEqual(strategy_payload["count"], 1)
         self.assertEqual(strategy_payload["strategies"][0]["strategy_name"], "demo")
@@ -906,11 +984,13 @@ class PairsDashboardTests(unittest.TestCase):
         self.assertEqual(settings_payload["default_quote_asset"], "USDT")
         self.assertEqual(settings_payload["log_count"], 1)
         self.assertEqual(settings_payload["local_trading_pair_count"], 1)
+        self.assertEqual(settings_payload["pair_preference_count"], 1)
         self.assertEqual(settings_payload["currency_icon_count"], 1)
         self.assertEqual(settings_payload["currency_icon_missing_count"], 1)
         self.assertEqual(settings_payload["normalize_job_count"], 1)
         self.assertEqual(settings_payload["duckdb_load_job_count"], 1)
         self.assertEqual(settings_payload["backtest_job_count"], 1)
+        self.assertEqual(str(config.pair_preferences_store_path), settings_payload["pair_preferences_store_path"])
 
         self.assertEqual(icon_payload["available_count"], 1)
         self.assertEqual(icon_payload["missing_count"], 1)
