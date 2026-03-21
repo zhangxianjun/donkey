@@ -41,11 +41,12 @@ def import_bt_modules() -> tuple[Any, Any]:
 
 
 def build_bt_frames(plan: TargetWeightPlan, pandas: Any) -> tuple[Any, Any]:
-    index = pandas.to_datetime(list(plan.weights_by_ts.keys()), utc=True)
+    rebalance_keys = list(plan.rebalance_weights_by_ts.keys())
+    index = pandas.to_datetime(rebalance_keys, utc=True)
     open_rows: list[dict[str, float | None]] = []
     weight_rows: list[dict[str, float]] = []
 
-    for ts in plan.weights_by_ts:
+    for ts in rebalance_keys:
         open_rows.append(
             {
                 symbol: plan.tables.open_prices.get(ts, {}).get(symbol)
@@ -54,7 +55,7 @@ def build_bt_frames(plan: TargetWeightPlan, pandas: Any) -> tuple[Any, Any]:
         )
         weight_rows.append(
             {
-                symbol: plan.weights_by_ts[ts].get(symbol, 0.0)
+                symbol: plan.rebalance_weights_by_ts[ts].get(symbol, 0.0)
                 for symbol in plan.tables.symbols
             }
         )
@@ -124,23 +125,38 @@ def build_trades_from_transactions(
     for ts, symbol, quantity, price in normalized_rows:
         fee_paid = abs(quantity) * price * fee_rate
         if quantity > 0:
-            open_positions[symbol] = BtOpenPosition(
-                symbol=symbol,
-                entry_ts=ts,
-                entry_price=price,
-                quantity=quantity,
-                entry_fee_paid=fee_paid,
-                entry_reason=plan.entry_reasons_by_ts.get(ts, {}).get(symbol),
-            )
+            position = open_positions.get(symbol)
+            if position is None:
+                open_positions[symbol] = BtOpenPosition(
+                    symbol=symbol,
+                    entry_ts=ts,
+                    entry_price=price,
+                    quantity=quantity,
+                    entry_fee_paid=fee_paid,
+                    entry_reason=plan.entry_reasons_by_ts.get(ts, {}).get(symbol),
+                )
+            else:
+                combined_qty = position.quantity + quantity
+                if combined_qty > 0:
+                    position.entry_price = (
+                        (position.entry_price * position.quantity) + (price * quantity)
+                    ) / combined_qty
+                position.quantity = combined_qty
+                position.entry_fee_paid += fee_paid
+                if position.entry_reason is None:
+                    position.entry_reason = plan.entry_reasons_by_ts.get(ts, {}).get(symbol)
             continue
 
         position = open_positions.get(symbol)
         if position is None:
             continue
 
-        exit_qty = abs(quantity)
-        gross_pnl = (price - position.entry_price) * min(position.quantity, exit_qty)
-        net_pnl = gross_pnl - position.entry_fee_paid - fee_paid
+        exit_qty = min(position.quantity, abs(quantity))
+        proportion = exit_qty / position.quantity if position.quantity > 0 else 1.0
+        allocated_entry_fee = position.entry_fee_paid * proportion
+        position.entry_fee_paid -= allocated_entry_fee
+        gross_pnl = (price - position.entry_price) * exit_qty
+        net_pnl = gross_pnl - allocated_entry_fee - fee_paid
         entry_index = plan.tables.bar_index_by_symbol.get(symbol, {}).get(position.entry_ts, 0)
         exit_index = plan.tables.bar_index_by_symbol.get(symbol, {}).get(ts, entry_index)
         trades.append(
@@ -153,17 +169,21 @@ def build_trades_from_transactions(
                 exit_ts=ts,
                 entry_price=position.entry_price,
                 exit_price=price,
-                quantity=min(position.quantity, exit_qty),
+                quantity=exit_qty,
                 gross_pnl=gross_pnl,
                 net_pnl=net_pnl,
                 return_pct=(price / position.entry_price - 1.0),
-                fees_paid=position.entry_fee_paid + fee_paid,
+                fees_paid=allocated_entry_fee + fee_paid,
                 bars_held=exit_index - entry_index,
                 entry_reason=position.entry_reason,
                 exit_reason=plan.exit_reasons_by_ts.get(ts, {}).get(symbol),
             )
         )
-        del open_positions[symbol]
+        remaining_qty = position.quantity - exit_qty
+        if remaining_qty <= 1e-12:
+            del open_positions[symbol]
+        else:
+            position.quantity = remaining_qty
 
     return trades
 

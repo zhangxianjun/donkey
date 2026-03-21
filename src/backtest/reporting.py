@@ -72,6 +72,22 @@ def safe_float(value: Any) -> float | None:
 def safe_int(value: Any) -> int | None:
     if value is None:
         return None
+
+
+def parse_utc_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -133,6 +149,53 @@ def artifact_entry(label: str, path: Path | None) -> dict[str, Any]:
         "path": str(path) if path is not None else None,
         "exists": exists,
         "size_bytes": size_bytes,
+    }
+
+
+def summarize_equity(equity_series: list[dict[str, Any]]) -> dict[str, Any]:
+    if not equity_series:
+        return {
+            "point_count": 0,
+            "active_point_count": 0,
+            "active_ratio": None,
+            "avg_gross_exposure": None,
+            "max_gross_exposure": None,
+            "avg_cash_ratio": None,
+            "min_cash_ratio": None,
+            "duration_days": None,
+        }
+
+    exposures = [
+        float(point.get("gross_exposure") or 0.0)
+        for point in equity_series
+    ]
+    active_point_count = sum(1 for exposure in exposures if exposure > 1e-12)
+    cash_ratios = [
+        cash / total_equity
+        for point in equity_series
+        for cash, total_equity in [
+            (
+                safe_float(point.get("cash")),
+                safe_float(point.get("total_equity")),
+            )
+        ]
+        if cash is not None and total_equity is not None and total_equity > 0
+    ]
+    first_ts = parse_utc_datetime(equity_series[0].get("ts"))
+    last_ts = parse_utc_datetime(equity_series[-1].get("ts"))
+    duration_days = None
+    if first_ts is not None and last_ts is not None:
+        duration_days = max((last_ts - first_ts).total_seconds(), 0.0) / 86400.0
+
+    return {
+        "point_count": len(equity_series),
+        "active_point_count": active_point_count,
+        "active_ratio": active_point_count / len(equity_series) if equity_series else None,
+        "avg_gross_exposure": sum(exposures) / len(exposures) if exposures else None,
+        "max_gross_exposure": max(exposures) if exposures else None,
+        "avg_cash_ratio": sum(cash_ratios) / len(cash_ratios) if cash_ratios else None,
+        "min_cash_ratio": min(cash_ratios) if cash_ratios else None,
+        "duration_days": duration_days,
     }
 
 
@@ -206,6 +269,7 @@ def build_backtest_report(record: Mapping[str, Any]) -> dict[str, Any]:
     trades = read_record_rows(trades_path)
     equity_rows = read_record_rows(equity_path)
     equity_series = compute_drawdown_series(equity_rows)
+    equity_summary = summarize_equity(equity_series)
     trade_summary = summarize_trades(trades)
 
     peak_equity = max((point["total_equity"] for point in equity_series), default=safe_float(summary.get("final_equity")))
@@ -218,10 +282,12 @@ def build_backtest_report(record: Mapping[str, Any]) -> dict[str, Any]:
             "run_id": record.get("run_id"),
             "strategy_id": record.get("strategy_id"),
             "strategy_name": record.get("strategy_name"),
+            "display_name": record.get("display_name"),
             "strategy_version": record.get("strategy_version"),
             "engine": record.get("engine"),
             "status": record.get("status"),
             "input_path": record.get("input_path"),
+            "strategy_path": record.get("strategy_path"),
             "manifest_path": record.get("manifest_path"),
             "created_at": record.get("created_at"),
             "started_at": record.get("started_at"),
@@ -245,9 +311,18 @@ def build_backtest_report(record: Mapping[str, Any]) -> dict[str, Any]:
             "avg_return_pct": trade_summary["avg_return_pct"],
             "avg_bars_held": trade_summary["avg_bars_held"],
             "peak_equity": peak_equity,
+            "avg_gross_exposure": equity_summary["avg_gross_exposure"],
+            "max_gross_exposure": equity_summary["max_gross_exposure"],
+            "avg_cash_ratio": equity_summary["avg_cash_ratio"],
+            "min_cash_ratio": equity_summary["min_cash_ratio"],
+            "active_point_count": equity_summary["active_point_count"],
+            "active_ratio": equity_summary["active_ratio"],
+            "duration_days": equity_summary["duration_days"],
         },
         "equity": {
-            "point_count": len(equity_series),
+            "point_count": equity_summary["point_count"],
+            "active_point_count": equity_summary["active_point_count"],
+            "active_ratio": equity_summary["active_ratio"],
             "points": downsample_rows(equity_series, max_points=240),
         },
         "trades": trade_summary,

@@ -122,6 +122,38 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertEqual(signals_v1[0].entry_reason, "v1")
         self.assertEqual(signals_v2[0].entry_reason, "v2")
 
+    def test_loader_resolves_module_relative_to_external_config_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            external_root = Path(tmpdir) / "external_strategies"
+            config_dir = external_root / "configs"
+            module_dir = external_root / "strategies"
+            config_dir.mkdir(parents=True)
+            module_dir.mkdir(parents=True)
+            module_path = module_dir / "external_strategy.py"
+            config_path = config_dir / "external.yaml"
+
+            self.write_custom_strategy(module_path, entry_reason="external_repo")
+            config_path.write_text(
+                textwrap.dedent(
+                    """
+                    strategy_name: external
+                    strategy_version: v1
+                    module:
+                      path: ../strategies/external_strategy.py
+                      factory_name: build_strategy
+                      reload_on_change: true
+                    """
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            loader = ReloadableStrategyLoader(config_path, repo_root=Path.cwd())
+            strategy = loader.get_strategy()
+            signals = strategy.generate_signals(self.make_bars()[:1])
+
+        self.assertEqual(signals[0].entry_reason, "external_repo")
+
     @staticmethod
     def write_custom_strategy(module_path: Path, *, entry_reason: str) -> None:
         module_path.write_text(

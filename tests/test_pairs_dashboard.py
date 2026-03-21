@@ -10,17 +10,26 @@ from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 from src.admin.pairs_dashboard import (
+    add_persisted_strategy_root,
     BacktestJob,
     BacktestRunRequest,
+    build_strategy_config_payload,
+    clone_strategy_config,
     DashboardConfig,
     DuckDBLoadJob,
     DownloadJob,
+    find_strategy_entry_by_path,
     fetch_charting_library_asset,
     KlineDownloadRequest,
     LocalPair,
+    load_persisted_strategy_roots,
     NormalizeJob,
+    parse_simple_yaml_file,
+    parse_strategy_clone_payload,
+    parse_strategy_root_payload,
     PairAdminHTTPServer,
     SourcePair,
+    discover_strategy_entries,
     discover_local_pairs,
 )
 
@@ -51,6 +60,8 @@ class PairsDashboardTests(unittest.TestCase):
             raw_root=workspace_root / "data" / "raw" / "binance" / "spot",
             normalized_root=workspace_root / "data" / "normalized",
             strategies_root=workspace_root / "config" / "strategies",
+            extra_strategy_roots=tuple(),
+            strategy_root_store_path=workspace_root / "data" / "admin" / "strategy_roots.json",
             backtests_root=workspace_root / "data" / "backtests",
             logs_root=workspace_root / "logs",
             quant_db_path=workspace_root / "db" / "quant.duckdb",
@@ -69,6 +80,228 @@ class PairsDashboardTests(unittest.TestCase):
             default_quote_asset="USDT",
             default_tradeable_only=True,
         )
+
+    def test_discover_strategy_entries_includes_external_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as external_tmpdir:
+            workspace_root = Path(tmpdir)
+            external_root = Path(external_tmpdir)
+            config = self.make_config(workspace_root)
+            config = DashboardConfig(**{**config.__dict__, "extra_strategy_roots": (external_root,)})
+
+            normalized_version_dir = config.normalized_root / "v1"
+            normalized_version_dir.mkdir(parents=True)
+            (normalized_version_dir / "market_ohlcv_1h.jsonl").write_text(
+                json.dumps(
+                    {
+                        "ts": "2026-03-18T00:00:00.000Z",
+                        "symbol": "BNBUSDT",
+                        "interval": "1h",
+                        "open": 100,
+                        "high": 110,
+                        "low": 90,
+                        "close": 105,
+                        "volume": 123.45,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            local_strategy_dir = config.strategies_root
+            local_strategy_dir.mkdir(parents=True)
+            (local_strategy_dir / "demo_v1.yaml").write_text(
+                "\n".join(
+                    [
+                        "strategy_name: demo",
+                        "strategy_version: v1",
+                        "data:",
+                        "  data_version: v1",
+                        "universe:",
+                        "  symbols:",
+                        "    - BTCUSDT",
+                        "  interval: 1h",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            external_strategy_dir = external_root / "configs"
+            external_strategy_dir.mkdir(parents=True)
+            external_strategy_path = external_strategy_dir / "jingdaihuakai_v1.yaml"
+            external_strategy_path.write_text(
+                "\n".join(
+                    [
+                        'strategy_name: jingdaihuakai',
+                        'strategy_version: v1',
+                        'display_name: "静待花开策略"',
+                        'description: "private strategy"',
+                        "data:",
+                        "  data_version: v1",
+                        "universe:",
+                        "  symbols:",
+                        "    - BNBUSDT",
+                        "  interval: 1h",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            entries = discover_strategy_entries(config)
+            external_entry = find_strategy_entry_by_path(config, str(external_strategy_path))
+
+        self.assertEqual(len(entries), 2)
+        assert external_entry is not None
+        self.assertEqual(external_entry.display_name, "静待花开策略")
+        self.assertEqual(external_entry.location_kind, "external")
+        self.assertEqual(external_entry.strategy_root, str(external_root.resolve()))
+        self.assertTrue(external_entry.input_exists)
+
+    def test_clone_strategy_config_saves_into_external_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as external_tmpdir:
+            workspace_root = Path(tmpdir)
+            external_root = Path(external_tmpdir)
+            config = self.make_config(workspace_root)
+            external_configs_root = external_root / "configs"
+            config = DashboardConfig(**{**config.__dict__, "extra_strategy_roots": (external_configs_root,)})
+
+            normalized_version_dir = config.normalized_root / "v1"
+            normalized_version_dir.mkdir(parents=True)
+            (normalized_version_dir / "market_ohlcv_1h.jsonl").write_text(
+                json.dumps(
+                    {
+                        "ts": "2026-03-18T00:00:00.000Z",
+                        "symbol": "BNBUSDT",
+                        "interval": "1h",
+                        "open": 100,
+                        "high": 110,
+                        "low": 90,
+                        "close": 105,
+                        "volume": 123.45,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            external_configs_root.mkdir(parents=True)
+            strategy_path = external_configs_root / "jingdaihuakai_v1.yaml"
+            strategy_path.write_text(
+                "\n".join(
+                    [
+                        "strategy_name: jingdaihuakai",
+                        "strategy_version: v1",
+                        'display_name: "静待花开策略"',
+                        'description: "private strategy"',
+                        "module:",
+                        "  path: ../strategies/jingdaihuakai.py",
+                        "  factory_name: build_strategy",
+                        "universe:",
+                        "  symbols:",
+                        "    - BNBUSDT",
+                        "  interval: 1h",
+                        "data:",
+                        "  data_version: v1",
+                        "signal:",
+                        "  min_swing_amplitude: 0.18",
+                        "  fib_tolerance_pct: 0.05",
+                        "execution:",
+                        "  fee_bps: 10",
+                        "risk:",
+                        "  max_position_per_symbol: 0.5",
+                        "backtest:",
+                        "  engine: native",
+                        "artifacts:",
+                        "  signal_path: data/signals/jingdaihuakai_v1/{symbol}_1h_signal.jsonl",
+                        "  trades_path: data/backtests/jingdaihuakai_v1/trades.jsonl",
+                        "  equity_path: data/backtests/jingdaihuakai_v1/portfolio_equity.jsonl",
+                        "  summary_path: data/backtests/jingdaihuakai_v1/summary.json",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config_payload = build_strategy_config_payload(config, str(strategy_path))
+            clone_request = parse_strategy_clone_payload(
+                {
+                    "source_strategy_path": str(strategy_path),
+                    "target_filename": "jingdaihuakai_v1_cal.yaml",
+                    "strategy_name": "jingdaihuakai",
+                    "strategy_version": "v1_cal",
+                    "display_name": "静待花开策略 调参版",
+                    "description": "calibrated clone",
+                    "updates": {
+                        "signal.min_swing_amplitude": 0.2,
+                        "signal.fib_tolerance_pct": 0.06,
+                        "universe.symbols": ["BNBUSDT", "ETHUSDT"],
+                    },
+                }
+            )
+            result = clone_strategy_config(config, clone_request)
+            cloned_path = Path(result["strategy_path"])
+            cloned_config = parse_simple_yaml_file(cloned_path)
+            cloned_entry = find_strategy_entry_by_path(config, str(cloned_path))
+
+        self.assertEqual(config_payload["clone_defaults"]["strategy_version"], "v1_cal")
+        self.assertEqual(config_payload["strategy"]["display_name"], "静待花开策略")
+        self.assertEqual(cloned_path.parent, external_configs_root.resolve())
+        self.assertEqual(cloned_config["strategy_version"], "v1_cal")
+        self.assertEqual(cloned_config["display_name"], "静待花开策略 调参版")
+        self.assertEqual(cloned_config["signal"]["min_swing_amplitude"], 0.2)
+        self.assertEqual(cloned_config["signal"]["fib_tolerance_pct"], 0.06)
+        self.assertEqual(cloned_config["universe"]["symbols"], ["BNBUSDT", "ETHUSDT"])
+        self.assertEqual(
+            cloned_config["artifacts"]["summary_path"],
+            "data/backtests/jingdaihuakai_v1_cal/summary.json",
+        )
+        self.assertEqual(
+            cloned_config["artifacts"]["signal_path"],
+            "data/signals/jingdaihuakai_v1_cal/{symbol}_1h_signal.jsonl",
+        )
+        assert cloned_entry is not None
+        self.assertEqual(cloned_entry.location_kind, "external")
+        self.assertEqual(cloned_entry.display_name, "静待花开策略 调参版")
+
+    def test_add_persisted_strategy_root_saves_store_and_discovers_yml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as external_tmpdir:
+            workspace_root = Path(tmpdir)
+            external_root = Path(external_tmpdir) / "configs"
+            external_root.mkdir(parents=True)
+            config = self.make_config(workspace_root)
+
+            strategy_path = external_root / "private_demo_v1.yml"
+            strategy_path.write_text(
+                "\n".join(
+                    [
+                        "strategy_name: private_demo",
+                        "strategy_version: v1",
+                        'display_name: "外部示例策略"',
+                        "universe:",
+                        "  symbols:",
+                        "    - BTCUSDT",
+                        "  interval: 1h",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = add_persisted_strategy_root(
+                config,
+                parse_strategy_root_payload({"root_path": str(external_root)}),
+            )
+            persisted_roots = load_persisted_strategy_roots(config)
+            discovered = discover_strategy_entries(config)
+            store_exists = config.strategy_root_store_path.exists()
+
+        self.assertTrue(result["created"])
+        self.assertEqual(result["strategy_count"], 1)
+        self.assertEqual(persisted_roots, (external_root.resolve(),))
+        self.assertTrue(store_exists)
+        self.assertIn(str(external_root.resolve()), [item.strategy_root for item in discovered])
+        self.assertEqual(discovered[0].display_name, "外部示例策略")
 
     def test_discover_local_pairs_aggregates_intervals_and_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -203,6 +436,7 @@ class PairsDashboardTests(unittest.TestCase):
                     [
                         "strategy_name: demo",
                         "strategy_version: v1",
+                        'display_name: "演示策略"',
                         'description: "demo strategy"',
                         "universe:",
                         "  exchange: binance",
@@ -256,7 +490,7 @@ class PairsDashboardTests(unittest.TestCase):
             server = PairAdminHTTPServer(("127.0.0.1", 0), config=config)
             thread = threading.Thread(
                 target=self.serve_requests,
-                args=(server, 40),
+                args=(server, 52),
                 daemon=True,
             )
             thread.start()
@@ -309,6 +543,7 @@ class PairsDashboardTests(unittest.TestCase):
                 run_id="20260320_000000_abcd12",
                 strategy_id="demo_v1",
                 strategy_name="demo",
+                display_name="演示策略",
                 strategy_version="v1",
                 engine="backtrader",
                 interval="1d",
@@ -455,6 +690,36 @@ class PairsDashboardTests(unittest.TestCase):
 
                     with urlopen(f"{base_url}/api/strategies") as response:
                         strategy_payload = json.loads(response.read().decode("utf-8"))
+
+                    with urlopen(
+                        f"{base_url}/api/strategy-config?strategy_path={strategy_dir / 'demo_v1.yaml'}"
+                    ) as response:
+                        strategy_config_payload = json.loads(response.read().decode("utf-8"))
+
+                    clone_strategy_request = Request(
+                        f"{base_url}/api/clone-strategy-config",
+                        data=json.dumps(
+                            {
+                                "source_strategy_path": str(strategy_dir / "demo_v1.yaml"),
+                                "target_filename": "demo_v1_cal.yaml",
+                                "strategy_name": "demo",
+                                "strategy_version": "v1_cal",
+                                "display_name": "演示策略 调参版",
+                                "description": "demo strategy calibrated",
+                                "updates": {
+                                    "backtest.initial_capital": 200000,
+                                    "universe.symbols": ["BTCUSDT", "ETHUSDT"],
+                                },
+                            }
+                        ).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urlopen(clone_strategy_request) as response:
+                        clone_strategy_payload = json.loads(response.read().decode("utf-8"))
+
+                    with urlopen(f"{base_url}/api/strategies") as response:
+                        strategy_payload_after_clone = json.loads(response.read().decode("utf-8"))
 
                     with urlopen(f"{base_url}/api/backtest-records") as response:
                         backtest_payload = json.loads(response.read().decode("utf-8"))
@@ -616,13 +881,26 @@ class PairsDashboardTests(unittest.TestCase):
 
         self.assertEqual(strategy_payload["count"], 1)
         self.assertEqual(strategy_payload["strategies"][0]["strategy_name"], "demo")
+        self.assertEqual(strategy_payload["strategies"][0]["display_name"], "演示策略")
+        self.assertEqual(strategy_config_payload["strategy"]["strategy_name"], "demo")
+        self.assertEqual(strategy_config_payload["clone_defaults"]["strategy_version"], "v1_cal")
+        self.assertEqual(clone_strategy_payload["strategy_id"], "demo_v1_cal")
+        self.assertTrue(clone_strategy_payload["strategy_path"].endswith("demo_v1_cal.yaml"))
+        self.assertEqual(strategy_payload_after_clone["count"], 2)
+        self.assertIn(
+            "演示策略 调参版",
+            [item["display_name"] for item in strategy_payload_after_clone["strategies"]],
+        )
 
-        self.assertEqual(backtest_payload["count"], 1)
-        self.assertEqual(backtest_payload["records"][0]["status"], "ready")
-        self.assertEqual(backtest_payload["records"][0]["metrics"]["sharpe"], 1.2)
-        self.assertEqual(backtest_payload["records"][0]["record_id"], "strategy:demo_v1")
-        self.assertTrue(backtest_payload["records"][0]["report_available"])
+        self.assertEqual(backtest_payload["count"], 2)
+        original_record = next(item for item in backtest_payload["records"] if item["record_id"] == "strategy:demo_v1")
+        self.assertEqual(original_record["status"], "ready")
+        self.assertEqual(original_record["metrics"]["sharpe"], 1.2)
+        self.assertEqual(original_record["display_name"], "演示策略")
+        self.assertTrue(original_record["report_available"])
         self.assertEqual(backtest_report_payload["record"]["record_id"], "strategy:demo_v1")
+        self.assertEqual(backtest_report_payload["record"]["display_name"], "演示策略")
+        self.assertTrue(backtest_report_payload["record"]["strategy_path"].endswith("demo_v1.yaml"))
         self.assertEqual(backtest_report_payload["summary"]["total_return"], 0.34)
 
         self.assertEqual(settings_payload["default_quote_asset"], "USDT")
@@ -692,6 +970,69 @@ class PairsDashboardTests(unittest.TestCase):
                 skip_signal_write=False,
             )
         )
+
+    def test_http_endpoint_adds_external_strategy_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as external_tmpdir:
+            workspace_root = Path(tmpdir)
+            external_root = Path(external_tmpdir) / "configs"
+            external_root.mkdir(parents=True)
+            config = self.make_config(workspace_root)
+
+            strategy_dir = config.strategies_root
+            strategy_dir.mkdir(parents=True)
+            (strategy_dir / "demo_v1.yaml").write_text(
+                "strategy_name: demo\nstrategy_version: v1\n",
+                encoding="utf-8",
+            )
+            (external_root / "external_v1.yaml").write_text(
+                "\n".join(
+                    [
+                        "strategy_name: external_demo",
+                        "strategy_version: v1",
+                        'display_name: "外部策略"',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            server = PairAdminHTTPServer(("127.0.0.1", 0), config=config)
+            thread = threading.Thread(
+                target=self.serve_requests,
+                args=(server, 6),
+                daemon=True,
+            )
+            thread.start()
+
+            try:
+                host, port = server.server_address
+                base_url = f"http://{host}:{port}"
+
+                add_root_request = Request(
+                    f"{base_url}/api/strategy-roots",
+                    data=json.dumps({"root_path": str(external_root)}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(add_root_request) as response:
+                    add_root_payload = json.loads(response.read().decode("utf-8"))
+
+                with urlopen(f"{base_url}/api/system-settings") as response:
+                    settings_payload = json.loads(response.read().decode("utf-8"))
+
+                with urlopen(f"{base_url}/api/strategies") as response:
+                    strategies_payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.server_close()
+                thread.join(timeout=1)
+
+        self.assertTrue(add_root_payload["created"])
+        self.assertEqual(add_root_payload["strategy_count"], 1)
+        self.assertIn(str(external_root.resolve()), settings_payload["persisted_extra_strategy_roots"])
+        self.assertIn(str(external_root.resolve()), settings_payload["extra_strategy_roots"])
+        self.assertEqual(str(config.strategy_root_store_path), settings_payload["strategy_root_store_path"])
+        self.assertEqual(str(external_root.resolve()), strategies_payload["strategies"][1]["strategy_root"])
+        self.assertEqual("外部策略", strategies_payload["strategies"][1]["display_name"])
 
 
 if __name__ == "__main__":

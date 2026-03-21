@@ -1,0 +1,62 @@
+strategy_name: "jingdaihuakai"
+strategy_version: "v1"
+display_name: "静待花开策略"
+description: "Waiting To Bloom staged Fibonacci retracement strategy on 1h bars."
+module:
+  path: "/Users/casper/Documents/code/screen/strategies/jingdaihuakai.py"
+  factory_name: "build_strategy"
+  reload_on_change: true
+universe:
+  exchange: "binance"
+  market_type: "spot"
+  symbols:
+    - BNBUSDT
+  interval: "1h"
+signal:
+  swing_lookback_days: 120
+  min_swing_amplitude: 0.12
+  fib_tolerance_pct: 0.05
+  pre_drop_threshold: -0.03
+  consolidation_days: 10
+  max_consolidation_range: 0.14
+  current_volume_window_hours: 24
+  entry_volume_multiplier: 1.0
+  add_breakout_pct: 0.1
+  add_volume_min_multiplier: 1.05
+  add_volume_max_multiplier: 1.3
+  reduce_near_high_ratio: 0.95
+  clear_volume_multiplier: 1.05
+  entry_target_weight: 0.2
+  add_target_weight: 0.5
+  reduce_target_weight: 0.2
+execution:
+  order_type: "next_bar_open"
+  rebalance_frequency: "hourly"
+  slippage_bps: 5
+  fee_bps: 10
+risk:
+  position_sizing: "signal_target_weight"
+  max_position_per_symbol: 0.5
+  max_total_exposure: 0.5
+  max_active_positions: 1
+  allow_partial_cash: true
+backtest:
+  engine: "native"
+  initial_capital: 100000.0
+  benchmark_symbol: "BNBUSDT"
+artifacts:
+  signal_path: "data/tmp/calibration/{symbol}_signal.jsonl"
+  trades_path: "data/tmp/calibration/trades.jsonl"
+  equity_path: "data/tmp/calibration/equity.jsonl"
+  summary_path: "data/tmp/calibration/summary.json"
+data:
+  data_version: "v1"
+  required_fields:
+    - ts
+    - symbol
+    - interval
+    - open
+    - high
+    - low
+    - close
+    - volume

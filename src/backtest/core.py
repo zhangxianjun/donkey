@@ -12,6 +12,7 @@ DEFAULT_INITIAL_CAPITAL = 100000.0
 DEFAULT_ORDER_TYPE = "next_bar_open"
 DEFAULT_ENGINE = "native"
 SUPPORTED_BACKTEST_ENGINES = ("native", "bt", "backtrader")
+SUPPORTED_POSITION_SIZING = ("equal_weight_active", "signal_target_weight")
 
 
 @dataclass(frozen=True)
@@ -130,6 +131,7 @@ class MarketTables:
 class TargetWeightPlan:
     tables: MarketTables
     weights_by_ts: dict[str, dict[str, float]]
+    rebalance_weights_by_ts: dict[str, dict[str, float]]
     entry_reasons_by_ts: dict[str, dict[str, str | None]]
     exit_reasons_by_ts: dict[str, dict[str, str | None]]
 
@@ -228,9 +230,11 @@ def validate_backtest_settings(settings: BacktestSettings) -> None:
         raise ValueError("risk.max_total_exposure must be > 0.")
     if settings.max_position_per_symbol > settings.max_total_exposure:
         raise ValueError("risk.max_position_per_symbol must be <= risk.max_total_exposure.")
-    if settings.position_sizing != "equal_weight_active":
+    if settings.position_sizing not in SUPPORTED_POSITION_SIZING:
         raise ValueError(
-            "Only risk.position_sizing=equal_weight_active is supported by the built-in backtest runners."
+            "Supported risk.position_sizing values are: "
+            + ", ".join(SUPPORTED_POSITION_SIZING)
+            + "."
         )
     if settings.order_type != DEFAULT_ORDER_TYPE:
         raise ValueError("Only execution.order_type=next_bar_open is currently supported.")
@@ -288,11 +292,32 @@ def build_target_weight_plan(
     for signal in sorted(signals, key=lambda item: (item.symbol, item.ts)):
         signals_by_symbol.setdefault(signal.symbol, []).append(signal)
 
-    entry_schedule: dict[str, list[str]] = {}
-    exit_schedule: dict[str, list[str]] = {}
-    entry_reasons: dict[str, dict[str, str | None]] = {}
-    exit_reasons: dict[str, dict[str, str | None]] = {}
+    validate_signal_alignment(
+        bars_by_symbol=bars_by_symbol,
+        signals_by_symbol=signals_by_symbol,
+    )
 
+    if settings.position_sizing == "signal_target_weight":
+        return build_signal_target_weight_plan(
+            tables=tables,
+            bars_by_symbol=bars_by_symbol,
+            signals_by_symbol=signals_by_symbol,
+            settings=settings,
+        )
+
+    return build_equal_weight_target_plan(
+        tables=tables,
+        bars_by_symbol=bars_by_symbol,
+        signals_by_symbol=signals_by_symbol,
+        settings=settings,
+    )
+
+
+def validate_signal_alignment(
+    *,
+    bars_by_symbol: dict[str, list[MarketBar]],
+    signals_by_symbol: dict[str, list[SignalRecord]],
+) -> None:
     for symbol, symbol_signals in signals_by_symbol.items():
         symbol_bars = bars_by_symbol.get(symbol, [])
         if len(symbol_bars) != len(symbol_signals):
@@ -300,6 +325,22 @@ def build_target_weight_plan(
                 f"Signal count does not match bar count for {symbol}: "
                 f"{len(symbol_signals)} vs {len(symbol_bars)}."
             )
+
+
+def build_equal_weight_target_plan(
+    *,
+    tables: MarketTables,
+    bars_by_symbol: dict[str, list[MarketBar]],
+    signals_by_symbol: dict[str, list[SignalRecord]],
+    settings: BacktestSettings,
+) -> TargetWeightPlan:
+    entry_schedule: dict[str, list[str]] = {}
+    exit_schedule: dict[str, list[str]] = {}
+    entry_reasons: dict[str, dict[str, str | None]] = {}
+    exit_reasons: dict[str, dict[str, str | None]] = {}
+
+    for symbol, symbol_signals in signals_by_symbol.items():
+        symbol_bars = bars_by_symbol.get(symbol, [])
         for index, signal in enumerate(symbol_signals[:-1]):
             execution_ts = symbol_bars[index + 1].ts
             if not filter_ts_in_backtest_range(execution_ts, settings):
@@ -340,9 +381,149 @@ def build_target_weight_plan(
     return TargetWeightPlan(
         tables=tables,
         weights_by_ts=weights_by_ts,
+        rebalance_weights_by_ts=build_rebalance_weight_snapshots(
+            weights_by_ts=weights_by_ts,
+            symbols=tables.symbols,
+        ),
         entry_reasons_by_ts=entry_reasons,
         exit_reasons_by_ts=exit_reasons,
     )
+
+
+def build_signal_target_weight_plan(
+    *,
+    tables: MarketTables,
+    bars_by_symbol: dict[str, list[MarketBar]],
+    signals_by_symbol: dict[str, list[SignalRecord]],
+    settings: BacktestSettings,
+) -> TargetWeightPlan:
+    scheduled_weights: dict[str, dict[str, float]] = {}
+    entry_reasons: dict[str, dict[str, str | None]] = {}
+    exit_reasons: dict[str, dict[str, str | None]] = {}
+    previous_targets = {symbol: 0.0 for symbol in tables.symbols}
+
+    for symbol, symbol_signals in signals_by_symbol.items():
+        symbol_bars = bars_by_symbol.get(symbol, [])
+        previous_target = 0.0
+        for index, signal in enumerate(symbol_signals[:-1]):
+            execution_ts = symbol_bars[index + 1].ts
+            if signal.target_weight is None:
+                raise ValueError(
+                    "risk.position_sizing=signal_target_weight requires every signal "
+                    "record to include target_weight."
+                )
+            target_weight = clamp_target_weight(float(signal.target_weight), settings=settings)
+            if not filter_ts_in_backtest_range(execution_ts, settings):
+                previous_target = target_weight
+                continue
+
+            scheduled_weights.setdefault(execution_ts, {})[symbol] = target_weight
+            if target_weight > previous_target + 1e-12:
+                entry_reasons.setdefault(execution_ts, {})[symbol] = signal.entry_reason
+            elif target_weight + 1e-12 < previous_target:
+                exit_reasons.setdefault(execution_ts, {})[symbol] = signal.exit_reason
+            previous_target = target_weight
+
+    weights_by_ts: dict[str, dict[str, float]] = {}
+
+    for ts in tables.timestamps:
+        if not filter_ts_in_backtest_range(ts, settings):
+            continue
+
+        for symbol, target_weight in scheduled_weights.get(ts, {}).items():
+            previous_targets[symbol] = target_weight
+
+        normalized_weights = normalize_signal_target_weights(
+            previous_targets,
+            settings=settings,
+        )
+        weights_by_ts[ts] = normalized_weights
+        previous_targets = dict(normalized_weights)
+
+    return TargetWeightPlan(
+        tables=tables,
+        weights_by_ts=weights_by_ts,
+        rebalance_weights_by_ts=build_rebalance_weight_snapshots(
+            weights_by_ts=weights_by_ts,
+            symbols=tables.symbols,
+        ),
+        entry_reasons_by_ts=entry_reasons,
+        exit_reasons_by_ts=exit_reasons,
+    )
+
+
+def clamp_target_weight(value: float, *, settings: BacktestSettings) -> float:
+    return min(max(value, 0.0), settings.max_position_per_symbol)
+
+
+def normalize_signal_target_weights(
+    targets: dict[str, float],
+    *,
+    settings: BacktestSettings,
+) -> dict[str, float]:
+    clipped = {
+        symbol: clamp_target_weight(weight, settings=settings)
+        for symbol, weight in targets.items()
+    }
+    active = [
+        (symbol, weight)
+        for symbol, weight in clipped.items()
+        if weight > 1e-12
+    ]
+    if len(active) > settings.max_active_positions:
+        allowed = {
+            symbol
+            for symbol, _ in sorted(active, key=lambda item: (-item[1], item[0]))[
+                : settings.max_active_positions
+            ]
+        }
+        clipped = {
+            symbol: (weight if symbol in allowed else 0.0)
+            for symbol, weight in clipped.items()
+        }
+
+    total_weight = sum(clipped.values())
+    if total_weight > settings.max_total_exposure and total_weight > 0:
+        scale = settings.max_total_exposure / total_weight
+        clipped = {
+            symbol: weight * scale
+            for symbol, weight in clipped.items()
+        }
+
+    return clipped
+
+
+def build_rebalance_weight_snapshots(
+    *,
+    weights_by_ts: dict[str, dict[str, float]],
+    symbols: list[str],
+) -> dict[str, dict[str, float]]:
+    snapshots: dict[str, dict[str, float]] = {}
+    previous = {symbol: 0.0 for symbol in symbols}
+
+    for ts in sorted(weights_by_ts):
+        current = {
+            symbol: float(weights_by_ts[ts].get(symbol, 0.0))
+            for symbol in symbols
+        }
+        if not weights_changed(previous, current, symbols=symbols):
+            continue
+        snapshots[ts] = current
+        previous = current
+
+    return snapshots
+
+
+def weights_changed(
+    previous: dict[str, float],
+    current: dict[str, float],
+    *,
+    symbols: list[str],
+) -> bool:
+    for symbol in symbols:
+        if abs(float(previous.get(symbol, 0.0)) - float(current.get(symbol, 0.0))) > 1e-12:
+            return True
+    return False
 
 
 def build_summary_metrics(

@@ -37,10 +37,6 @@ def run_native_backtest(
     trades: list[TradeRecord] = []
 
     for ts in plan.tables.timestamps:
-        target_weights = plan.weights_by_ts.get(ts)
-        if target_weights is None:
-            continue
-
         open_prices = plan.tables.open_prices.get(ts, {})
         close_prices = plan.tables.close_prices.get(ts, {})
         equity_before = cash + sum(
@@ -49,71 +45,70 @@ def run_native_backtest(
             if position.symbol in open_prices
         )
 
-        for symbol in plan.tables.symbols:
-            if symbol not in open_prices:
-                continue
+        target_weights = plan.rebalance_weights_by_ts.get(ts)
+        if target_weights is not None:
+            for symbol in plan.tables.symbols:
+                if symbol not in open_prices:
+                    continue
 
-            position = open_positions.get(symbol)
-            current_qty = position.quantity if position is not None else 0.0
-            target_weight = target_weights.get(symbol, 0.0)
-            desired_value = equity_before * target_weight
-            target_qty = desired_value / open_prices[symbol] if target_weight > 0 else 0.0
-            if abs(target_qty - current_qty) < 1e-12:
-                continue
+                position = open_positions.get(symbol)
+                current_qty = position.quantity if position is not None else 0.0
+                target_weight = target_weights.get(symbol, 0.0)
+                desired_value = equity_before * target_weight
+                target_qty = desired_value / open_prices[symbol] if target_weight > 0 else 0.0
+                if abs(target_qty - current_qty) < 1e-12:
+                    continue
 
-            if target_qty > current_qty:
-                fill_price = open_prices[symbol] * (1.0 + settings.slippage_rate)
-                buy_qty = target_qty - current_qty
-                gross_cost = buy_qty * fill_price
-                fee_paid = gross_cost * settings.fee_rate
-                affordable_qty = buy_qty
-                if settings.allow_partial_cash and gross_cost + fee_paid > cash and fill_price > 0:
-                    affordable_qty = cash / (fill_price * (1.0 + settings.fee_rate))
-                    gross_cost = affordable_qty * fill_price
+                if target_qty > current_qty:
+                    fill_price = open_prices[symbol] * (1.0 + settings.slippage_rate)
+                    buy_qty = target_qty - current_qty
+                    gross_cost = buy_qty * fill_price
                     fee_paid = gross_cost * settings.fee_rate
-                elif not settings.allow_partial_cash and gross_cost + fee_paid > cash:
-                    continue
-                if affordable_qty <= 0:
-                    continue
+                    affordable_qty = buy_qty
+                    if settings.allow_partial_cash and gross_cost + fee_paid > cash and fill_price > 0:
+                        affordable_qty = cash / (fill_price * (1.0 + settings.fee_rate))
+                        gross_cost = affordable_qty * fill_price
+                        fee_paid = gross_cost * settings.fee_rate
+                    elif not settings.allow_partial_cash and gross_cost + fee_paid > cash:
+                        continue
+                    if affordable_qty <= 0:
+                        continue
 
-                cash -= gross_cost + fee_paid
-                if position is None:
-                    open_positions[symbol] = OpenPosition(
-                        symbol=symbol,
-                        entry_ts=ts,
-                        entry_price=fill_price,
-                        quantity=affordable_qty,
-                        entry_fee_paid=fee_paid,
-                        entry_reason=plan.entry_reasons_by_ts.get(ts, {}).get(symbol),
-                        entry_bar_index=plan.tables.bar_index_by_symbol[symbol][ts],
-                    )
+                    cash -= gross_cost + fee_paid
+                    if position is None:
+                        open_positions[symbol] = OpenPosition(
+                            symbol=symbol,
+                            entry_ts=ts,
+                            entry_price=fill_price,
+                            quantity=affordable_qty,
+                            entry_fee_paid=fee_paid,
+                            entry_reason=plan.entry_reasons_by_ts.get(ts, {}).get(symbol),
+                            entry_bar_index=plan.tables.bar_index_by_symbol[symbol][ts],
+                        )
+                    else:
+                        combined_qty = position.quantity + affordable_qty
+                        weighted_entry_price = (
+                            (position.entry_price * position.quantity) + (fill_price * affordable_qty)
+                        ) / combined_qty
+                        position.entry_price = weighted_entry_price
+                        position.quantity = combined_qty
+                        position.entry_fee_paid += fee_paid
                 else:
-                    combined_qty = position.quantity + affordable_qty
-                    weighted_entry_price = (
-                        (position.entry_price * position.quantity) + (fill_price * affordable_qty)
-                    ) / combined_qty
-                    position.entry_price = weighted_entry_price
-                    position.quantity = combined_qty
-                    position.entry_fee_paid += fee_paid
-            else:
-                if position is None:
-                    continue
-                sell_qty = current_qty - target_qty
-                fill_price = open_prices[symbol] * (1.0 - settings.slippage_rate)
-                gross_proceeds = sell_qty * fill_price
-                fee_paid = gross_proceeds * settings.fee_rate
-                cash += gross_proceeds - fee_paid
-                remaining_qty = position.quantity - sell_qty
-                proportion = sell_qty / position.quantity if position.quantity > 0 else 1.0
-                allocated_entry_fee = position.entry_fee_paid * proportion
-                position.entry_fee_paid -= allocated_entry_fee
-
-                if remaining_qty <= 1e-12:
+                    if position is None:
+                        continue
+                    sell_qty = current_qty - target_qty
+                    fill_price = open_prices[symbol] * (1.0 - settings.slippage_rate)
+                    gross_proceeds = sell_qty * fill_price
+                    fee_paid = gross_proceeds * settings.fee_rate
+                    cash += gross_proceeds - fee_paid
+                    remaining_qty = position.quantity - sell_qty
+                    proportion = sell_qty / position.quantity if position.quantity > 0 else 1.0
+                    allocated_entry_fee = position.entry_fee_paid * proportion
+                    position.entry_fee_paid -= allocated_entry_fee
                     gross_pnl = (fill_price - position.entry_price) * sell_qty
                     net_pnl = gross_pnl - allocated_entry_fee - fee_paid
-                    bars_held = (
-                        plan.tables.bar_index_by_symbol[symbol][ts] - position.entry_bar_index
-                    )
+                    bars_held = plan.tables.bar_index_by_symbol[symbol][ts] - position.entry_bar_index
+
                     trades.append(
                         TradeRecord(
                             trade_id=f"{metadata.strategy_id}_{symbol}_{len(trades) + 1}",
@@ -134,9 +129,11 @@ def run_native_backtest(
                             exit_reason=plan.exit_reasons_by_ts.get(ts, {}).get(symbol),
                         )
                     )
-                    del open_positions[symbol]
-                else:
-                    position.quantity = remaining_qty
+
+                    if remaining_qty <= 1e-12:
+                        del open_positions[symbol]
+                    else:
+                        position.quantity = remaining_qty
 
         market_value = sum(
             position.quantity * close_prices[position.symbol]

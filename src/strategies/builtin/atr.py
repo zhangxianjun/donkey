@@ -142,6 +142,7 @@ class ATRStrategy:
                     signal_long_exit=exit_signal,
                     position=1 if in_position else 0,
                     close=bar.close,
+                    target_weight=1.0 if in_position else 0.0,
                     atr=atr,
                     atr_stop=trailing_stop if in_position else None,
                     entry_reason=entry_reason,

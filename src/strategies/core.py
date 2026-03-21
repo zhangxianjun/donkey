@@ -64,6 +64,7 @@ class SignalRecord:
     signal_long_exit: int
     position: int
     close: float
+    target_weight: float | None = None
     atr: float | None = None
     atr_stop: float | None = None
     entry_reason: str | None = None
@@ -82,6 +83,7 @@ class SignalRecord:
             "signal_long_exit": self.signal_long_exit,
             "position": self.position,
             "close": self.close,
+            "target_weight": self.target_weight,
             "atr": self.atr,
             "atr_stop": self.atr_stop,
             "entry_reason": self.entry_reason,

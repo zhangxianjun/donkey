@@ -135,7 +135,7 @@ def build_backtrader_strategy(backtrader: Any) -> type[Any]:
             self.target_weights_by_trigger_dt: dict[datetime, dict[str, float]] = {}
             for index, trigger_ts in enumerate(self.plan.tables.timestamps[:-1]):
                 execution_ts = self.plan.tables.timestamps[index + 1]
-                target_weights = self.plan.weights_by_ts.get(execution_ts)
+                target_weights = self.plan.rebalance_weights_by_ts.get(execution_ts)
                 if target_weights is None:
                     continue
                 self.target_weights_by_trigger_dt[iso_to_backtrader_datetime(trigger_ts)] = {
@@ -188,28 +188,44 @@ def build_backtrader_strategy(backtrader: Any) -> type[Any]:
                 return
 
             if order.isbuy():
-                if symbol in self.open_positions or current_position.size <= 1e-12:
+                if current_position.size <= 1e-12:
                     return
-                self.open_positions[symbol] = BacktraderOpenPosition(
-                    symbol=symbol,
-                    entry_ts=ts,
-                    entry_price=float(order.executed.price),
-                    quantity=float(current_position.size),
-                    entry_fee_paid=float(order.executed.comm),
-                    entry_reason=self.entry_reasons_by_ts.get(ts, {}).get(symbol),
-                    entry_bar_index=self.bar_index_by_symbol.get(symbol, {}).get(ts, 0),
-                )
+                existing = self.open_positions.get(symbol)
+                if existing is None:
+                    self.open_positions[symbol] = BacktraderOpenPosition(
+                        symbol=symbol,
+                        entry_ts=ts,
+                        entry_price=float(order.executed.price),
+                        quantity=float(current_position.size),
+                        entry_fee_paid=float(order.executed.comm),
+                        entry_reason=self.entry_reasons_by_ts.get(ts, {}).get(symbol),
+                        entry_bar_index=self.bar_index_by_symbol.get(symbol, {}).get(ts, 0),
+                    )
+                    return
+
+                combined_qty = float(current_position.size)
+                previous_qty = max(combined_qty - executed_size, 0.0)
+                if combined_qty > 0:
+                    existing.entry_price = (
+                        (existing.entry_price * previous_qty)
+                        + (float(order.executed.price) * executed_size)
+                    ) / combined_qty
+                existing.quantity = combined_qty
+                existing.entry_fee_paid += float(order.executed.comm)
+                if existing.entry_reason is None:
+                    existing.entry_reason = self.entry_reasons_by_ts.get(ts, {}).get(symbol)
                 return
 
             position = self.open_positions.get(symbol)
             if position is None:
                 return
-            if current_position.size > 1e-12:
-                position.quantity = float(current_position.size)
-                return
 
-            gross_pnl = (float(order.executed.price) - position.entry_price) * executed_size
-            net_pnl = gross_pnl - position.entry_fee_paid - float(order.executed.comm)
+            exit_qty = min(position.quantity, executed_size)
+            proportion = exit_qty / position.quantity if position.quantity > 0 else 1.0
+            allocated_entry_fee = position.entry_fee_paid * proportion
+            position.entry_fee_paid -= allocated_entry_fee
+            gross_pnl = (float(order.executed.price) - position.entry_price) * exit_qty
+            net_pnl = gross_pnl - allocated_entry_fee - float(order.executed.comm)
             exit_index = self.bar_index_by_symbol.get(symbol, {}).get(
                 ts,
                 position.entry_bar_index,
@@ -224,16 +240,20 @@ def build_backtrader_strategy(backtrader: Any) -> type[Any]:
                     exit_ts=ts,
                     entry_price=position.entry_price,
                     exit_price=float(order.executed.price),
-                    quantity=executed_size,
+                    quantity=exit_qty,
                     gross_pnl=gross_pnl,
                     net_pnl=net_pnl,
                     return_pct=(float(order.executed.price) / position.entry_price - 1.0),
-                    fees_paid=position.entry_fee_paid + float(order.executed.comm),
+                    fees_paid=allocated_entry_fee + float(order.executed.comm),
                     bars_held=exit_index - position.entry_bar_index,
                     entry_reason=position.entry_reason,
                     exit_reason=self.exit_reasons_by_ts.get(ts, {}).get(symbol),
                 )
             )
+            remaining_qty = float(current_position.size)
+            if remaining_qty > 1e-12:
+                position.quantity = remaining_qty
+                return
             del self.open_positions[symbol]
 
         def next(self) -> None:

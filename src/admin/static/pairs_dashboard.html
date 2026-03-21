@@ -309,14 +309,14 @@
 
       .segment-bar {
         display: flex;
-        gap: 10px;
+        gap: 8px;
         flex-wrap: wrap;
       }
 
       .segment-button {
         border: 1px solid var(--line);
-        border-radius: 14px;
-        padding: 10px 14px;
+        border-radius: 12px;
+        padding: 9px 13px;
         font: inherit;
         font-weight: 700;
         color: #cdd3db;
@@ -335,8 +335,8 @@
         align-items: center;
         justify-content: center;
         border: 1px solid var(--accent);
-        border-radius: 14px;
-        padding: 12px 18px;
+        border-radius: 12px;
+        padding: 11px 16px;
         font: inherit;
         font-weight: 700;
         color: #181a20;
@@ -367,7 +367,7 @@
       }
 
       .button-small {
-        padding: 8px 12px;
+        padding: 7px 11px;
         font-size: 13px;
         box-shadow: none;
       }
@@ -381,8 +381,8 @@
       .status-line {
         display: inline-flex;
         align-items: center;
-        min-height: 40px;
-        padding: 0 14px;
+        min-height: 38px;
+        padding: 0 12px;
         border: 1px solid var(--line);
         border-radius: 12px;
         font-size: 13px;
@@ -399,6 +399,102 @@
 
       .status-banner {
         display: grid;
+      }
+
+      .local-data-toolbar {
+        display: grid;
+        grid-template-columns: minmax(140px, 180px) minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .modal-backdrop[hidden] {
+        display: none;
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: rgba(8, 11, 15, 0.72);
+        backdrop-filter: blur(10px);
+      }
+
+      .modal-dialog {
+        width: min(1120px, 100%);
+        max-height: min(88vh, 920px);
+        overflow: hidden;
+        border: 1px solid rgba(71, 77, 87, 0.48);
+        border-radius: 24px;
+        background: linear-gradient(180deg, rgba(24, 28, 35, 0.98), rgba(14, 18, 24, 0.98));
+        box-shadow: 0 32px 120px rgba(0, 0, 0, 0.42);
+      }
+
+      .modal-shell {
+        display: grid;
+        gap: 18px;
+        padding: 22px;
+      }
+
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: start;
+      }
+
+      .modal-eyebrow {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 5px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(240, 185, 11, 0.18);
+        background: rgba(240, 185, 11, 0.08);
+        font-size: 12px;
+        font-weight: 700;
+        color: #f3ca57;
+      }
+
+      .modal-title {
+        margin: 12px 0 0;
+        font-size: 22px;
+        letter-spacing: -0.03em;
+      }
+
+      .modal-copy,
+      .modal-panel-copy {
+        margin: 8px 0 0;
+        font-size: 13px;
+        line-height: 1.7;
+        color: #a7b0bc;
+      }
+
+      .modal-panel {
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+        border: 1px solid rgba(71, 77, 87, 0.42);
+        border-radius: 20px;
+        background: linear-gradient(180deg, rgba(29, 33, 39, 0.95), rgba(19, 23, 29, 0.95));
+      }
+
+      .source-modal-toolbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+        gap: 10px;
+        align-items: center;
+      }
+
+      .source-modal-table .table-scroll {
+        max-height: min(52vh, 520px);
+      }
+
+      body.modal-open {
+        overflow: hidden;
       }
 
       body.chart-page-mode .app-shell {
@@ -500,14 +596,6 @@
         border-bottom: 1px solid rgba(71, 77, 87, 0.38);
       }
 
-      .page-kicker {
-        margin: 0 0 8px;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.18em;
-        color: var(--accent);
-      }
-
       h2 {
         margin: 0;
         font-size: 24px;
@@ -551,15 +639,74 @@
 
       .toolbar {
         display: grid;
-        gap: 12px;
-        margin-top: 16px;
+        gap: 10px;
+        margin-top: 14px;
       }
 
       .toolbar-row {
         display: flex;
-        gap: 10px;
+        gap: 8px;
         align-items: center;
         flex-wrap: wrap;
+      }
+
+      .compact-control-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: end;
+      }
+
+      .compact-control-grid > .field,
+      .compact-control-grid > .toolbar-input {
+        min-width: 0;
+        flex: 1 1 170px;
+      }
+
+      .compact-control-grid > .field {
+        gap: 6px;
+      }
+
+      .compact-control-grid > .field.field-wide,
+      .compact-control-grid > .toolbar-input.toolbar-input-wide {
+        flex-basis: 240px;
+        flex-grow: 1.35;
+      }
+
+      .compact-control-grid > .field.field-medium {
+        flex-basis: 190px;
+      }
+
+      .compact-control-grid > .field.field-tight {
+        flex: 0.85 1 140px;
+      }
+
+      .compact-control-grid > .field.field-file {
+        flex-basis: 260px;
+        flex-grow: 1.15;
+      }
+
+      .compact-control-grid > button,
+      .compact-control-grid > .action-cluster {
+        flex: 0 0 auto;
+        align-self: end;
+      }
+
+      .compact-control-grid > .switch-cluster,
+      .compact-control-grid > .action-cluster {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .compact-control-grid > .switch-cluster {
+        margin-left: auto;
+      }
+
+      .compact-control-grid > .hint {
+        flex: 1 0 100%;
+        margin: 0;
       }
 
       .form-grid {
@@ -571,7 +718,7 @@
 
       .field {
         display: grid;
-        gap: 8px;
+        gap: 6px;
       }
 
       .field-label {
@@ -589,11 +736,13 @@
       input[type="text"],
       input[type="date"],
       input[type="file"],
+      input[type="number"],
+      textarea,
       select {
         width: 100%;
         border: 1px solid #2b3139;
-        border-radius: 12px;
-        padding: 13px 14px;
+        border-radius: 10px;
+        padding: 11px 12px;
         font: inherit;
         color: var(--ink);
         background: #181a20;
@@ -602,7 +751,9 @@
       }
 
       input[type="search"]::placeholder,
-      input[type="text"]::placeholder {
+      input[type="text"]::placeholder,
+      input[type="number"]::placeholder,
+      textarea::placeholder {
         color: #707a86;
       }
 
@@ -610,13 +761,15 @@
       input[type="text"]:focus,
       input[type="date"]:focus,
       input[type="file"]:focus,
+      input[type="number"]:focus,
+      textarea:focus,
       select:focus {
         border-color: rgba(240, 185, 11, 0.58);
         box-shadow: 0 0 0 3px rgba(240, 185, 11, 0.12);
       }
 
       input[type="file"] {
-        padding: 10px 12px;
+        padding: 8px 10px;
       }
 
       input[type="file"]::file-selector-button {
@@ -631,12 +784,17 @@
         background: linear-gradient(180deg, var(--accent-strong), var(--accent));
       }
 
+      textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+
       .switch {
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        padding: 9px 12px;
-        border-radius: 12px;
+        padding: 8px 10px;
+        border-radius: 10px;
         border: 1px solid var(--line);
         background: rgba(255, 255, 255, 0.02);
         color: #d3d7dd;
@@ -1002,6 +1160,61 @@
         margin-top: 14px;
       }
 
+      .field-help {
+        font-size: 12px;
+        line-height: 1.5;
+        color: #7f8995;
+      }
+
+      .strategy-editor-shell {
+        display: grid;
+        gap: 16px;
+        margin-top: 16px;
+      }
+
+      .strategy-editor-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) 320px;
+        gap: 14px;
+        padding: 18px;
+        border: 1px solid rgba(240, 185, 11, 0.16);
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(25, 30, 37, 0.98), rgba(16, 20, 25, 0.98));
+      }
+
+      .strategy-editor-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .strategy-editor-card {
+        border: 1px solid rgba(71, 77, 87, 0.42);
+        border-radius: 18px;
+        padding: 16px;
+        background: #161a1e;
+      }
+
+      .strategy-editor-sections {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .strategy-editor-section {
+        border: 1px solid rgba(71, 77, 87, 0.42);
+        border-radius: 18px;
+        padding: 16px;
+        background: #161a1e;
+      }
+
+      .strategy-editor-section-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 14px;
+      }
+
       .report-detail-item {
         border: 1px solid rgba(71, 77, 87, 0.32);
         border-radius: 14px;
@@ -1124,6 +1337,7 @@
           grid-template-columns: 1fr;
         }
 
+        .strategy-editor-hero,
         .report-hero,
         .report-metrics-grid,
         .report-chart-grid,
@@ -1150,8 +1364,16 @@
         .page-grid.two-col,
         .form-grid,
         .settings-grid,
-        .currency-icon-grid {
+        .currency-icon-grid,
+        .strategy-editor-grid,
+        .strategy-editor-sections,
+        .strategy-editor-section-grid {
           grid-template-columns: 1fr;
+        }
+
+        .compact-control-grid > .switch-cluster {
+          margin-left: 0;
+          flex: 1 0 100%;
         }
       }
 
@@ -1179,6 +1401,30 @@
         .brand-header,
         .page-head {
           align-items: start;
+        }
+
+        .local-data-toolbar,
+        .source-modal-toolbar {
+          grid-template-columns: 1fr;
+        }
+
+        .compact-control-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+        }
+
+        .compact-control-grid > .switch-cluster,
+        .compact-control-grid > .action-cluster {
+          margin-left: 0;
+          justify-content: flex-start;
+        }
+
+        .modal-backdrop {
+          padding: 14px;
+        }
+
+        .modal-shell {
+          padding: 16px;
         }
 
         th,
@@ -1220,9 +1466,6 @@
         <div class="nav-group">
           <p class="nav-group-title">数据管理</p>
           <div class="nav-list">
-            <button class="nav-button" type="button" data-page="data-sources">
-              <span class="nav-label">数据源</span>
-            </button>
             <button class="nav-button" type="button" data-page="local-data">
               <span class="nav-label">本地数据</span>
             </button>
@@ -1342,7 +1585,6 @@
           <section class="page" data-page-group="data-sources">
             <div class="page-head">
               <div>
-                <p class="page-kicker" id="sourceKicker">1.1 数据源</p>
                 <h2 id="sourceTitle">币安数据源</h2>
                 <p class="page-subtitle" id="sourceMeta">统一页面内切换不同数据源，查看远端交易对和本地状态。</p>
               </div>
@@ -1366,8 +1608,10 @@
               <h3 id="sourcePanelTitle">币安交易对</h3>
               <p class="section-copy" id="sourcePanelCopy">当前来源的数据不与其他来源合并。下载参数请到“下载配置”页面统一维护。</p>
               <div class="toolbar">
-                <div class="toolbar-row">
-                  <input id="sourceSearch" type="search" placeholder="搜索 symbol / base / quote" />
+                <div class="compact-control-grid">
+                  <div class="toolbar-input toolbar-input-wide">
+                    <input id="sourceSearch" type="search" placeholder="搜索 symbol / base / quote" />
+                  </div>
                 </div>
               </div>
               <div class="table-shell">
@@ -1393,7 +1637,6 @@
           <section class="page" data-page-group="download-config">
             <div class="page-head">
               <div>
-                <p class="page-kicker">1.5 下载配置</p>
                 <h2>下载配置</h2>
                 <p class="page-subtitle">统一维护数据源页面和本地数据页面共用的筛选与下载参数。</p>
               </div>
@@ -1402,36 +1645,36 @@
             <article class="card">
               <h3>公共参数</h3>
               <p class="section-copy">报价资产和可交易过滤影响数据源列表；周期和日期影响下载任务。</p>
-              <div class="form-grid">
-                <label class="field">
-                  <span class="field-label">周期</span>
-                  <input id="intervalInput" type="text" value="5m,1h,4h,8h,1d,1w" />
-                </label>
-                <label class="field">
-                  <span class="field-label">开始日期</span>
-                  <input id="startDateInput" type="date" />
-                </label>
-                <label class="field">
-                  <span class="field-label">结束日期</span>
-                  <input id="endDateInput" type="date" />
-                </label>
-                <label class="field">
-                  <span class="field-label">报价资产</span>
-                  <input id="quoteAssetInput" type="text" value="USDT" />
-                </label>
-              </div>
               <div class="toolbar">
-                <div class="toolbar-row">
-                  <label class="switch">
-                    <input id="tradeableOnly" type="checkbox" checked />
-                    <span>只看可交易</span>
+                <div class="compact-control-grid">
+                  <label class="field field-wide">
+                    <span class="field-label">周期</span>
+                    <input id="intervalInput" type="text" value="5m,1h,4h,8h,1d,1w" />
                   </label>
-                  <label class="switch">
-                    <input id="startFromListing" type="checkbox" checked />
-                    <span>从上市时间开始</span>
+                  <label class="field field-tight">
+                    <span class="field-label">开始日期</span>
+                    <input id="startDateInput" type="date" />
                   </label>
+                  <label class="field field-tight">
+                    <span class="field-label">结束日期</span>
+                    <input id="endDateInput" type="date" />
+                  </label>
+                  <label class="field field-tight">
+                    <span class="field-label">报价资产</span>
+                    <input id="quoteAssetInput" type="text" value="USDT" />
+                  </label>
+                  <div class="switch-cluster">
+                    <label class="switch">
+                      <input id="tradeableOnly" type="checkbox" checked />
+                      <span>只看可交易</span>
+                    </label>
+                    <label class="switch">
+                      <input id="startFromListing" type="checkbox" checked />
+                      <span>从上市时间开始</span>
+                    </label>
+                  </div>
+                  <div class="hint">修改后会直接作用到当前选中的数据源页面和本地数据页；页面本身不再提供单独刷新按钮。</div>
                 </div>
-                <div class="hint">修改后会直接作用到当前选中的数据源页面和本地数据页；页面本身不再提供单独刷新按钮。</div>
               </div>
             </article>
           </section>
@@ -1439,7 +1682,6 @@
           <section class="page" data-page-group="local-data">
             <div class="page-head">
               <div>
-                <p class="page-kicker">1.2 本地数据</p>
                 <h2>本地数据</h2>
                 <p class="page-subtitle" id="localMeta">已下载 raw 数据按数据源区分展示，任务状态放在页面底部。</p>
               </div>
@@ -1449,9 +1691,10 @@
               <h3>本地数据列表</h3>
               <p class="section-copy">查看各数据源已经下载到本地的交易对数据。</p>
               <div class="toolbar">
-                <div class="toolbar-row">
+                <div class="toolbar-row local-data-toolbar">
                   <select id="localSourceFilter"></select>
                   <input id="localSearch" type="search" placeholder="搜索 symbol / interval" />
+                  <button id="openSourceModalButton" type="button">添加交易对</button>
                 </div>
               </div>
               <div class="table-shell">
@@ -1489,7 +1732,6 @@
           <section class="page" data-page-group="normalized-data">
             <div class="page-head">
               <div>
-                <p class="page-kicker">1.3 格式数据</p>
                 <h2>格式数据</h2>
                 <p class="page-subtitle" id="normalizedMeta">从本地 raw 数据生成标准化 `market_ohlcv` 数据集。</p>
               </div>
@@ -1499,32 +1741,30 @@
               <article class="card">
                 <h3>Normalize 配置</h3>
                 <p class="section-copy">当前内置流程基于 Binance raw K 线文件执行标准化，输出到 `data/normalized/<data_version>`。</p>
-                <div class="form-grid">
-                  <label class="field">
-                    <span class="field-label">Data Version</span>
-                    <input id="normalizeDataVersionInput" type="text" value="v1" />
-                  </label>
-                  <label class="field">
-                    <span class="field-label">Output Format</span>
-                    <select id="normalizeOutputFormatSelect">
-                      <option value="auto">auto</option>
-                      <option value="jsonl">jsonl</option>
-                      <option value="parquet">parquet</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    <span class="field-label">来源</span>
-                    <select id="normalizeSourceSelect">
-                      <option value="binance">币安 raw</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    <span class="field-label">周期过滤</span>
-                    <input id="normalizeIntervalInput" type="text" placeholder="留空则沿用下载配置中的周期" />
-                  </label>
-                </div>
                 <div class="toolbar">
-                  <div class="toolbar-row">
+                  <div class="compact-control-grid">
+                    <label class="field field-medium">
+                      <span class="field-label">Data Version</span>
+                      <input id="normalizeDataVersionInput" type="text" value="v1" />
+                    </label>
+                    <label class="field field-tight">
+                      <span class="field-label">Output Format</span>
+                      <select id="normalizeOutputFormatSelect">
+                        <option value="auto">auto</option>
+                        <option value="jsonl">jsonl</option>
+                        <option value="parquet">parquet</option>
+                      </select>
+                    </label>
+                    <label class="field field-tight">
+                      <span class="field-label">来源</span>
+                      <select id="normalizeSourceSelect">
+                        <option value="binance">币安 raw</option>
+                      </select>
+                    </label>
+                    <label class="field field-wide">
+                      <span class="field-label">周期过滤</span>
+                      <input id="normalizeIntervalInput" type="text" placeholder="留空则沿用下载配置中的周期" />
+                    </label>
                     <button id="normalizeAllButton" type="button">格式化全部候选 raw</button>
                     <span class="hint">页面行按钮可单独格式化某个交易对；非 Binance 来源会显示不可用。</span>
                   </div>
@@ -1586,7 +1826,6 @@
           <section class="page" data-page-group="duckdb">
             <div class="page-head">
               <div>
-                <p class="page-kicker">1.4 DuckDB</p>
                 <h2>DuckDB 装载</h2>
                 <p class="page-subtitle" id="duckdbMeta">从 normalized 数据版本装载到 `market_ohlcv` 表。</p>
               </div>
@@ -1596,18 +1835,16 @@
               <article class="card">
                 <h3>装载配置</h3>
                 <p class="section-copy">选择一个 normalized 版本，必要时按 interval 过滤后写入 DuckDB。</p>
-                <div class="form-grid">
-                  <label class="field">
-                    <span class="field-label">Data Version</span>
-                    <select id="duckdbDataVersionSelect"></select>
-                  </label>
-                  <label class="field">
-                    <span class="field-label">Interval 过滤</span>
-                    <input id="duckdbIntervalInput" type="text" placeholder="如 1h,4h；留空装载全部" />
-                  </label>
-                </div>
                 <div class="toolbar">
-                  <div class="toolbar-row">
+                  <div class="compact-control-grid">
+                    <label class="field field-medium">
+                      <span class="field-label">Data Version</span>
+                      <select id="duckdbDataVersionSelect"></select>
+                    </label>
+                    <label class="field field-wide">
+                      <span class="field-label">Interval 过滤</span>
+                      <input id="duckdbIntervalInput" type="text" placeholder="如 1h,4h；留空装载全部" />
+                    </label>
                     <button id="loadDuckdbButton" type="button">装载到 DuckDB</button>
                     <span class="hint">同一 `data_version + interval` 再次装载会替换旧数据，不会无限累加。</span>
                   </div>
@@ -1653,8 +1890,7 @@
           <section class="page" data-page-group="charting-library">
             <div class="page-head">
               <div>
-                <p class="page-kicker">1.6 K线图表</p>
-                <h2>Charting Library</h2>
+                <h2>K线图表</h2>
                 <p class="page-subtitle" id="chartMeta">从 DuckDB 查询 K 线，并通过自定义 datafeed 渲染到 TradingView Charting Library。</p>
               </div>
             </div>
@@ -1662,26 +1898,24 @@
             <article class="card">
               <h3>图表配置</h3>
               <p class="section-copy">图表数据来自 DuckDB；如果本地未放置官方 Charting Library bundle，页面会给出明确提示。</p>
-              <div class="form-grid">
-                <label class="field">
-                  <span class="field-label">Data Version</span>
-                  <select id="chartDataVersionSelect"></select>
-                </label>
-                <label class="field">
-                  <span class="field-label">Interval</span>
-                  <select id="chartIntervalSelect"></select>
-                </label>
-                <label class="field">
-                  <span class="field-label">Symbol</span>
-                  <select id="chartSymbolSelect"></select>
-                </label>
-                <label class="field">
-                  <span class="field-label">Bundle 路径</span>
-                  <input id="chartLibraryPathInput" type="text" value="/charting_library/" readonly />
-                </label>
-              </div>
               <div class="toolbar">
-                <div class="toolbar-row">
+                <div class="compact-control-grid">
+                  <label class="field field-medium">
+                    <span class="field-label">Data Version</span>
+                    <select id="chartDataVersionSelect"></select>
+                  </label>
+                  <label class="field field-tight">
+                    <span class="field-label">Interval</span>
+                    <select id="chartIntervalSelect"></select>
+                  </label>
+                  <label class="field field-tight">
+                    <span class="field-label">Symbol</span>
+                    <select id="chartSymbolSelect"></select>
+                  </label>
+                  <label class="field field-wide">
+                    <span class="field-label">Bundle 路径</span>
+                    <input id="chartLibraryPathInput" type="text" value="/charting_library/" readonly />
+                  </label>
                   <button id="loadChartButton" type="button">加载图表</button>
                   <span class="hint">切换 data version / interval 后，会重新读取 DuckDB 的 symbol 列表。</span>
                 </div>
@@ -1704,11 +1938,35 @@
           <section class="page" data-page-group="strategy-showcase">
             <div class="page-head">
               <div>
-                <p class="page-kicker">2.1 策略展示</p>
                 <h2>策略展示</h2>
                 <p class="page-subtitle">展示策略配置、默认引擎、可用数据输入，并支持直接触发回测运行。</p>
               </div>
             </div>
+            <article class="card">
+              <div class="report-header">
+                <div>
+                  <h3>外部策略目录</h3>
+                  <p class="page-subtitle" id="strategyRootsMeta">填写策略 YAML 根目录，保存后会自动发现其中的外部策略。</p>
+                </div>
+              </div>
+              <div class="form-grid">
+                <label class="field">
+                  <span class="field-label">目录路径</span>
+                  <input
+                    id="strategyRootInput"
+                    type="text"
+                    placeholder="/Users/casper/Documents/code/screen/configs"
+                  />
+                </label>
+              </div>
+              <div class="toolbar">
+                <div class="toolbar-row">
+                  <button id="addStrategyRootButton" type="button">添加外部策略目录</button>
+                  <span class="hint">建议填写策略 YAML 所在目录；后台会把目录持久化到 donkey 工作区，重启后仍然生效。</span>
+                </div>
+              </div>
+              <div class="settings-grid" id="strategyRootsGrid"></div>
+            </article>
             <article class="card">
               <div class="table-shell">
                 <div class="table-scroll">
@@ -1728,6 +1986,15 @@
               </div>
             </article>
             <article class="card">
+              <div class="report-header">
+                <div>
+                  <h3>策略参数校准</h3>
+                  <p class="page-subtitle" id="strategyEditorMeta">选择一条策略后，可直接查看参数、另存为新 YAML，并立即运行新配置。</p>
+                </div>
+              </div>
+              <div id="strategyEditorBody" class="report-empty">还没有选中策略。</div>
+            </article>
+            <article class="card">
               <h3>回测任务</h3>
               <p class="page-subtitle" id="backtestJobsMeta">回测任务尚未加载。</p>
               <div class="job-list" id="backtestJobsList"></div>
@@ -1737,7 +2004,6 @@
           <section class="page" data-page-group="backtest-records">
             <div class="page-head">
               <div>
-                <p class="page-kicker">2.2 回测记录</p>
                 <h2>回测记录</h2>
                 <p class="page-subtitle">按运行记录查看 summary / trades / equity 产物，并展开完整回测报告。</p>
               </div>
@@ -1775,7 +2041,6 @@
           <section class="page" data-page-group="system-settings">
             <div class="page-head">
               <div>
-                <p class="page-kicker">3. 系统设置</p>
                 <h2>系统设置</h2>
                 <p class="page-subtitle">展示后台当前启用的接口配置、运行参数和环境信息。</p>
               </div>
@@ -1790,7 +2055,6 @@
           <section class="page" data-page-group="currency-icons">
             <div class="page-head">
               <div>
-                <p class="page-kicker">3.1 币种图标</p>
                 <h2>币种图标</h2>
                 <p class="page-subtitle">统一维护项目内的币种图标，支持搜索、查看和后续手动上传覆盖。</p>
               </div>
@@ -1798,30 +2062,26 @@
             <article class="card">
               <h3>图标管理</h3>
               <p class="section-copy" id="currencyIconSummary">当前币种图标尚未加载。</p>
-              <div class="form-grid">
-                <label class="field">
-                  <span class="field-label">币种代码</span>
-                  <input id="currencyIconAssetInput" type="text" placeholder="例如 BTC / USDT / 1INCH" />
-                </label>
-                <label class="field">
-                  <span class="field-label">图标文件</span>
-                  <input
-                    id="currencyIconFileInput"
-                    type="file"
-                    accept=".svg,.png,.webp,.jpg,.jpeg,image/svg+xml,image/png,image/webp,image/jpeg"
-                  />
-                </label>
-              </div>
               <div class="toolbar">
-                <div class="toolbar-row">
-                  <button id="uploadCurrencyIconButton" type="button">上传 / 覆盖图标</button>
-                  <span class="hint">支持 SVG / PNG / WEBP / JPG，按币种代码覆盖同名图标。</span>
-                </div>
-                <div class="toolbar-row">
-                  <label class="field" style="width: 100%">
+                <div class="compact-control-grid">
+                  <label class="field field-medium">
+                    <span class="field-label">币种代码</span>
+                    <input id="currencyIconAssetInput" type="text" placeholder="例如 BTC / USDT / 1INCH" />
+                  </label>
+                  <label class="field field-file">
+                    <span class="field-label">图标文件</span>
+                    <input
+                      id="currencyIconFileInput"
+                      type="file"
+                      accept=".svg,.png,.webp,.jpg,.jpeg,image/svg+xml,image/png,image/webp,image/jpeg"
+                    />
+                  </label>
+                  <label class="field field-wide">
                     <span class="field-label">搜索图标</span>
                     <input id="currencyIconSearch" type="search" placeholder="搜索 asset code" />
                   </label>
+                  <button id="uploadCurrencyIconButton" type="button">上传 / 覆盖图标</button>
+                  <span class="hint">支持 SVG / PNG / WEBP / JPG，按币种代码覆盖同名图标。</span>
                 </div>
               </div>
               <div class="currency-icon-grid" id="currencyIconGrid"></div>
@@ -1829,6 +2089,55 @@
           </section>
         </div>
       </main>
+    </div>
+
+    <div class="modal-backdrop" id="sourceModal" hidden>
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="sourceModalTitle">
+        <div class="modal-shell">
+          <div class="modal-header">
+            <div>
+              <div class="modal-eyebrow">添加交易对</div>
+              <h3 class="modal-title" id="sourceModalTitle">从币安添加交易对</h3>
+              <p class="modal-copy" id="sourceModalMeta">在弹窗内切换数据源并直接加入本地交易清单。</p>
+            </div>
+            <button id="closeSourceModalButton" class="button-secondary" type="button">关闭</button>
+          </div>
+
+          <section class="modal-panel">
+            <div>
+              <h3 id="sourceModalPanelTitle">币安交易对</h3>
+              <p class="modal-panel-copy" id="sourceModalPanelCopy">从远端列表中挑选候选，直接加入本地交易清单。</p>
+            </div>
+            <div class="source-modal-toolbar">
+              <div class="segment-bar">
+                <button class="segment-button source-switch-button active" type="button" data-source-switch="binance">币安</button>
+                <button class="segment-button source-switch-button" type="button" data-source-switch="okx">欧意</button>
+                <button class="segment-button source-switch-button" type="button" data-source-switch="bybit">Bybit</button>
+                <button class="segment-button source-switch-button" type="button" data-source-switch="hl">HL</button>
+              </div>
+              <input id="sourceModalSearch" type="search" placeholder="搜索 symbol / base / quote" />
+            </div>
+            <div class="hint">每个数据源的远端交易对、本地交易状态、本地数据状态都分开显示。</div>
+            <div class="table-shell source-modal-table">
+              <div class="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>交易对</th>
+                      <th>状态</th>
+                      <th>资产</th>
+                      <th>本地交易</th>
+                      <th>本地数据</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sourceModalRows"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -1845,6 +2154,9 @@
         selectedPage: "home",
         selectedSource: "binance",
         selectedLocalSource: "all",
+        sourceSearchQuery: "",
+        sourceModalOpen: false,
+        pendingSourceModalOpen: false,
         remotePairs: [],
         remoteMeta: null,
         remoteError: "",
@@ -1854,6 +2166,9 @@
         localPairs: [],
         localMeta: null,
         strategies: [],
+        selectedStrategyPath: "",
+        strategyConfig: null,
+        strategyEditorDraft: null,
         backtests: [],
         backtestJobs: [],
         backtestJobsMeta: null,
@@ -1896,19 +2211,33 @@
         quoteAssetInput: document.getElementById("quoteAssetInput"),
         tradeableOnly: document.getElementById("tradeableOnly"),
         startFromListing: document.getElementById("startFromListing"),
-        sourceKicker: document.getElementById("sourceKicker"),
         sourceTitle: document.getElementById("sourceTitle"),
         sourceMeta: document.getElementById("sourceMeta"),
         sourcePanelTitle: document.getElementById("sourcePanelTitle"),
         sourcePanelCopy: document.getElementById("sourcePanelCopy"),
         sourceSearch: document.getElementById("sourceSearch"),
         sourceRows: document.getElementById("sourceRows"),
+        sourceModal: document.getElementById("sourceModal"),
+        openSourceModalButton: document.getElementById("openSourceModalButton"),
+        closeSourceModalButton: document.getElementById("closeSourceModalButton"),
+        sourceModalTitle: document.getElementById("sourceModalTitle"),
+        sourceModalMeta: document.getElementById("sourceModalMeta"),
+        sourceModalPanelTitle: document.getElementById("sourceModalPanelTitle"),
+        sourceModalPanelCopy: document.getElementById("sourceModalPanelCopy"),
+        sourceModalSearch: document.getElementById("sourceModalSearch"),
+        sourceModalRows: document.getElementById("sourceModalRows"),
         manualList: document.getElementById("manualList"),
         localMeta: document.getElementById("localMeta"),
         localSourceFilter: document.getElementById("localSourceFilter"),
         localSearch: document.getElementById("localSearch"),
         localRows: document.getElementById("localRows"),
         strategyRows: document.getElementById("strategyRows"),
+        strategyRootInput: document.getElementById("strategyRootInput"),
+        addStrategyRootButton: document.getElementById("addStrategyRootButton"),
+        strategyRootsMeta: document.getElementById("strategyRootsMeta"),
+        strategyRootsGrid: document.getElementById("strategyRootsGrid"),
+        strategyEditorMeta: document.getElementById("strategyEditorMeta"),
+        strategyEditorBody: document.getElementById("strategyEditorBody"),
         backtestRows: document.getElementById("backtestRows"),
         backtestJobsMeta: document.getElementById("backtestJobsMeta"),
         backtestJobsList: document.getElementById("backtestJobsList"),
@@ -2052,6 +2381,318 @@
         return `${normalized.slice(0, 20)} ... ${normalized.slice(-28)}`;
       }
 
+      function fieldValueForInput(type, value) {
+        if (type === "list_string") {
+          return Array.isArray(value) ? value.join(", ") : "";
+        }
+        if (value === null || value === undefined) {
+          return "";
+        }
+        return String(value);
+      }
+
+      function renderEditorInput(field, value) {
+        const safeValue = value === null || value === undefined ? "" : value;
+        if (field.type === "boolean") {
+          return `
+            <label class="switch">
+              <input
+                type="checkbox"
+                data-editor-path="${escapeHtml(field.path)}"
+                data-editor-type="${escapeHtml(field.type)}"
+                ${safeValue ? "checked" : ""}
+              />
+              <span>${safeValue ? "启用" : "关闭"}</span>
+            </label>
+          `;
+        }
+        if (field.type === "number") {
+          return `
+            <input
+              type="number"
+              step="any"
+              value="${escapeHtml(fieldValueForInput(field.type, safeValue))}"
+              data-editor-path="${escapeHtml(field.path)}"
+              data-editor-type="${escapeHtml(field.type)}"
+            />
+          `;
+        }
+        if (field.type === "list_string") {
+          return `
+            <input
+              type="text"
+              value="${escapeHtml(fieldValueForInput(field.type, safeValue))}"
+              placeholder="逗号分隔"
+              data-editor-path="${escapeHtml(field.path)}"
+              data-editor-type="${escapeHtml(field.type)}"
+            />
+          `;
+        }
+        return `
+          <input
+            type="text"
+            value="${escapeHtml(fieldValueForInput(field.type, safeValue))}"
+            data-editor-path="${escapeHtml(field.path)}"
+            data-editor-type="${escapeHtml(field.type)}"
+          />
+        `;
+      }
+
+      function renderCloneEngineOptions(selectedEngine) {
+        return ["native", "bt", "backtrader"].map((engine) => {
+          return `<option value="${escapeHtml(engine)}" ${selectedEngine === engine ? "selected" : ""}>${escapeHtml(engine)}</option>`;
+        }).join("");
+      }
+
+      function createStrategyEditorDraft(payload) {
+        const strategy = payload && payload.strategy ? payload.strategy : {};
+        const cloneDefaults = payload && payload.clone_defaults ? payload.clone_defaults : {};
+        const updates = {};
+        const sections = payload && Array.isArray(payload.editable_sections) ? payload.editable_sections : [];
+        sections.forEach((section) => {
+          (section.fields || []).forEach((field) => {
+            updates[field.path] = field.value;
+          });
+        });
+        return {
+          strategy_path: strategy.strategy_path || "",
+          clone: {
+            display_name: cloneDefaults.display_name || "",
+            strategy_name: cloneDefaults.strategy_name || "",
+            strategy_version: cloneDefaults.strategy_version || "",
+            target_filename: cloneDefaults.target_filename || "",
+            description: cloneDefaults.description || "",
+            run_engine: cloneDefaults.engine || "native",
+          },
+          updates,
+        };
+      }
+
+      function ensureStrategyEditorDraft() {
+        if (!state.strategyConfig || !state.strategyConfig.strategy) {
+          state.strategyEditorDraft = null;
+          return null;
+        }
+        if (
+          !state.strategyEditorDraft ||
+          state.strategyEditorDraft.strategy_path !== state.strategyConfig.strategy.strategy_path
+        ) {
+          state.strategyEditorDraft = createStrategyEditorDraft(state.strategyConfig);
+        }
+        return state.strategyEditorDraft;
+      }
+
+      function renderStrategyEditor() {
+        if (!state.strategyConfig) {
+          els.strategyEditorMeta.textContent = "选择一条策略后，可直接查看参数、另存为新 YAML，并立即运行新配置。";
+          els.strategyEditorBody.className = "report-empty";
+          els.strategyEditorBody.innerHTML = "还没有选中策略。";
+          return;
+        }
+
+        const payload = state.strategyConfig;
+        const strategy = payload.strategy || {};
+        const cloneDefaults = payload.clone_defaults || {};
+        const readonly = payload.readonly || {};
+        const draft = ensureStrategyEditorDraft();
+        const strategyTitle = strategy.display_name || strategy.strategy_name || "-";
+        const sections = Array.isArray(payload.editable_sections) ? payload.editable_sections : [];
+
+        els.strategyEditorMeta.textContent = `${strategyTitle} / ${strategy.strategy_version || "-"} | 保存到 ${shortPath(cloneDefaults.target_root)} | 另存时会自动重写 artifacts 路径，避免覆盖原产物。`;
+        els.strategyEditorBody.className = "";
+        els.strategyEditorBody.innerHTML = `
+          <div class="strategy-editor-shell">
+            <section class="strategy-editor-hero">
+              <div>
+                <p class="report-kicker">Calibration</p>
+                <h3 class="report-title">${escapeHtml(strategyTitle)} / ${escapeHtml(strategy.strategy_version || "-")}</h3>
+                <p class="report-copy">
+                  标识 ${escapeHtml(strategy.strategy_name || "-")}，位置 ${escapeHtml(strategy.location_kind === "external" ? "外部私有策略" : "工作区策略")}。<br />
+                  输入 ${escapeHtml(shortPath(strategy.input_path))}，默认引擎 ${escapeHtml(strategy.configured_engine || "native")}。
+                </p>
+              </div>
+              <div class="report-aside">
+                <div class="report-badge-grid">
+                  <span class="pill ${strategy.input_exists ? "good" : "warn"}">${strategy.input_exists ? "INPUT READY" : "INPUT MISSING"}</span>
+                  <span class="pill info">${escapeHtml(strategy.data_version || "-")}</span>
+                  <span class="pill info">${escapeHtml(strategy.interval || "-")}</span>
+                </div>
+                <div class="report-path">source ${escapeHtml(shortPath(strategy.strategy_path))}</div>
+                <div class="report-path">root ${escapeHtml(shortPath(strategy.strategy_root))}</div>
+                <div class="report-path">module ${escapeHtml(shortPath(readonly.module_path))}</div>
+              </div>
+            </section>
+
+            <section class="strategy-editor-grid">
+              <article class="strategy-editor-card">
+                <h3>另存配置</h3>
+                <p class="section-copy">这里定义新 YAML 的身份、文件名和运行引擎。保存后新策略会出现在列表中。</p>
+                <div class="form-grid">
+                  <label class="field">
+                    <span class="field-label">Display Name</span>
+                    <input id="strategyCloneDisplayName" type="text" value="${escapeHtml((draft && draft.clone.display_name) || "")}" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Strategy Name</span>
+                    <input id="strategyCloneStrategyName" type="text" value="${escapeHtml((draft && draft.clone.strategy_name) || "")}" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Strategy Version</span>
+                    <input id="strategyCloneStrategyVersion" type="text" value="${escapeHtml((draft && draft.clone.strategy_version) || "")}" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Target Filename</span>
+                    <input id="strategyCloneFilename" type="text" value="${escapeHtml((draft && draft.clone.target_filename) || "")}" />
+                    <span class="field-help">仅接受简单文件名，保存目录固定为当前策略根目录。</span>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Run Engine</span>
+                    <select id="strategyCloneEngine">${renderCloneEngineOptions((draft && draft.clone.run_engine) || "native")}</select>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Target Root</span>
+                    <input type="text" value="${escapeHtml(shortPath(cloneDefaults.target_root))}" readonly />
+                  </label>
+                  <label class="field" style="grid-column: 1 / -1;">
+                    <span class="field-label">Description</span>
+                    <textarea id="strategyCloneDescription">${escapeHtml((draft && draft.clone.description) || "")}</textarea>
+                  </label>
+                </div>
+                <div class="toolbar">
+                  <div class="toolbar-row">
+                    <button id="saveStrategyCloneButton" type="button">另存为新策略</button>
+                    <button id="saveAndRunStrategyCloneButton" class="button-secondary" type="button" ${strategy.input_exists ? "" : "disabled"}>另存并回测</button>
+                    <span class="hint">${strategy.input_exists ? "会按新配置立即创建一条回测任务。" : "当前策略输入缺失，暂时无法直接运行。"} </span>
+                  </div>
+                </div>
+              </article>
+
+              <article class="strategy-editor-card">
+                <h3>只读上下文</h3>
+                <p class="section-copy">这些值直接影响模块加载和产物位置，所以在编辑器里只展示，不开放修改。</p>
+                <div class="report-detail-list">
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">Signal Path</div>
+                    <div class="report-path">${escapeHtml(shortPath(readonly.signal_path))}</div>
+                  </div>
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">Trades Path</div>
+                    <div class="report-path">${escapeHtml(shortPath(readonly.trades_path))}</div>
+                  </div>
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">Equity Path</div>
+                    <div class="report-path">${escapeHtml(shortPath(readonly.equity_path))}</div>
+                  </div>
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">Summary Path</div>
+                    <div class="report-path">${escapeHtml(shortPath(readonly.summary_path))}</div>
+                  </div>
+                </div>
+              </article>
+            </section>
+
+            <section class="strategy-editor-sections">
+              ${sections.map((section) => `
+                <article class="strategy-editor-section">
+                  <div class="report-detail-head">
+                    <div>
+                      <h3>${escapeHtml(section.title || section.name || "Parameters")}</h3>
+                      <p class="page-subtitle">修改后保存为新 YAML，原始策略配置不会被覆盖。</p>
+                    </div>
+                  </div>
+                  <div class="strategy-editor-section-grid">
+                    ${(section.fields || []).map((field) => `
+                      <label class="field">
+                        <span class="field-label">${escapeHtml(field.label || field.key || field.path || "-")}</span>
+                        ${renderEditorInput(field, draft && Object.prototype.hasOwnProperty.call(draft.updates, field.path) ? draft.updates[field.path] : field.value)}
+                        <span class="field-help">${escapeHtml(field.path || "-")}</span>
+                      </label>
+                    `).join("")}
+                  </div>
+                </article>
+              `).join("")}
+            </section>
+          </div>
+        `;
+      }
+
+      function parseEditorValue(element) {
+        const type = element.getAttribute("data-editor-type") || "string";
+        if (type === "boolean") {
+          return Boolean(element.checked);
+        }
+        if (type === "number") {
+          const raw = String(element.value || "").trim();
+          if (!raw) {
+            return null;
+          }
+          const parsed = Number(raw);
+          if (Number.isNaN(parsed)) {
+            throw new Error(`参数 ${element.getAttribute("data-editor-path")} 不是有效数字`);
+          }
+          return parsed;
+        }
+        if (type === "list_string") {
+          return String(element.value || "")
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean);
+        }
+        return String(element.value || "").trim();
+      }
+
+      function syncStrategyEditorDraftFromDom() {
+        if (!state.strategyConfig || !state.strategyConfig.strategy || !state.strategyEditorDraft) {
+          return;
+        }
+        const body = els.strategyEditorBody;
+        const displayName = body.querySelector("#strategyCloneDisplayName");
+        const strategyName = body.querySelector("#strategyCloneStrategyName");
+        const strategyVersion = body.querySelector("#strategyCloneStrategyVersion");
+        const targetFilename = body.querySelector("#strategyCloneFilename");
+        const description = body.querySelector("#strategyCloneDescription");
+        const runEngine = body.querySelector("#strategyCloneEngine");
+        if (displayName) {
+          state.strategyEditorDraft.clone.display_name = displayName.value.trim();
+        }
+        if (strategyName) {
+          state.strategyEditorDraft.clone.strategy_name = strategyName.value.trim();
+        }
+        if (strategyVersion) {
+          state.strategyEditorDraft.clone.strategy_version = strategyVersion.value.trim();
+        }
+        if (targetFilename) {
+          state.strategyEditorDraft.clone.target_filename = targetFilename.value.trim();
+        }
+        if (description) {
+          state.strategyEditorDraft.clone.description = description.value.trim();
+        }
+        if (runEngine) {
+          state.strategyEditorDraft.clone.run_engine = runEngine.value;
+        }
+        body.querySelectorAll("[data-editor-path]").forEach((element) => {
+          state.strategyEditorDraft.updates[element.getAttribute("data-editor-path")] = parseEditorValue(element);
+        });
+      }
+
+      function buildStrategyClonePayload() {
+        if (!state.strategyConfig || !state.strategyConfig.strategy) {
+          throw new Error("请先选择一条策略");
+        }
+        syncStrategyEditorDraftFromDom();
+        const draft = ensureStrategyEditorDraft();
+        return {
+          source_strategy_path: state.strategyConfig.strategy.strategy_path,
+          display_name: draft.clone.display_name,
+          strategy_name: draft.clone.strategy_name,
+          strategy_version: draft.clone.strategy_version,
+          target_filename: draft.clone.target_filename,
+          description: draft.clone.description,
+          run_engine: draft.clone.run_engine,
+          updates: draft.updates,
+        };
+      }
+
       function setStatus(text, isError = false) {
         if (!els.statusLine) {
           return;
@@ -2141,6 +2782,9 @@
         if (window.location.pathname === "/chart") {
           state.selectedPage = "charting-library";
           document.body.classList.add("chart-page-mode");
+        } else if (page === "data-sources") {
+          state.selectedPage = "local-data";
+          state.pendingSourceModalOpen = true;
         } else if (page) {
           state.selectedPage = page;
         }
@@ -2266,11 +2910,25 @@
         });
       }
 
+      function renderSourceModal() {
+        els.sourceModal.hidden = !state.sourceModalOpen;
+        document.body.classList.toggle("modal-open", state.sourceModalOpen);
+      }
+
       function renderSourceSwitchButtons() {
         els.sourceSwitchButtons.forEach((button) => {
           const active = button.getAttribute("data-source-switch") === currentSource();
           button.classList.toggle("active", active);
         });
+      }
+
+      function renderSourceSearchInputs() {
+        if (els.sourceSearch.value !== state.sourceSearchQuery) {
+          els.sourceSearch.value = state.sourceSearchQuery;
+        }
+        if (els.sourceModalSearch.value !== state.sourceSearchQuery) {
+          els.sourceModalSearch.value = state.sourceSearchQuery;
+        }
       }
 
       function renderLocalSourceOptions() {
@@ -2286,10 +2944,12 @@
       function renderSourceHeading() {
         const source = currentSource();
         const label = SOURCE_LABELS[source];
-        els.sourceKicker.textContent = `1.1 数据源 / ${label}`;
         els.sourceTitle.textContent = `${label}数据源`;
         els.sourcePanelTitle.textContent = `${label}交易对`;
         els.sourcePanelCopy.textContent = `${label} 的远端交易对、本地交易状态、本地数据状态单独展示。`;
+        els.sourceModalTitle.textContent = `从${label}添加交易对`;
+        els.sourceModalPanelTitle.textContent = `${label}交易对`;
+        els.sourceModalPanelCopy.textContent = `从 ${label} 的远端列表中挑选候选，直接加入本地交易清单。`;
       }
 
       function renderMetrics() {
@@ -2330,7 +2990,7 @@
 
       function renderHomeQuickFacts() {
         const items = [
-          ["当前数据源页", SOURCE_LABELS[currentSource()]],
+          ["当前数据源", SOURCE_LABELS[currentSource()]],
           ["当前本地筛选", currentLocalFilterSource() === "all" ? "全部数据源" : SOURCE_LABELS[currentLocalFilterSource()]],
           ["默认报价资产", state.settings ? state.settings.default_quote_asset : "-"],
           ["默认仅可交易", state.settings ? String(state.settings.default_tradeable_only) : "-"],
@@ -2386,78 +3046,81 @@
 
       function renderSourceMeta() {
         const label = SOURCE_LABELS[currentSource()];
+        let text = "";
         if (state.remoteError) {
-          els.sourceMeta.textContent = state.remoteError;
-          return;
+          text = state.remoteError;
+        } else if (!state.remoteMeta) {
+          text = `${label} 数据源等待加载`;
+        } else {
+          const quoteText = state.remoteMeta.filters && state.remoteMeta.filters.quote_asset
+            ? state.remoteMeta.filters.quote_asset.join(", ")
+            : "ALL";
+          text = `${label} 共 ${state.remoteMeta.count} 个交易对，报价资产 ${quoteText}，${state.remoteMeta.filters.tradeable_only ? "仅可交易" : "含不可交易"}，更新时间 ${formatTime(state.remoteMeta.fetched_at)}`;
         }
-        if (!state.remoteMeta) {
-          els.sourceMeta.textContent = `${label} 数据源等待加载`;
-          return;
-        }
-        const quoteText = state.remoteMeta.filters && state.remoteMeta.filters.quote_asset
-          ? state.remoteMeta.filters.quote_asset.join(", ")
-          : "ALL";
-        els.sourceMeta.textContent = `${label} 共 ${state.remoteMeta.count} 个交易对，报价资产 ${quoteText}，${state.remoteMeta.filters.tradeable_only ? "仅可交易" : "含不可交易"}，更新时间 ${formatTime(state.remoteMeta.fetched_at)}`;
+        els.sourceMeta.textContent = text;
+        els.sourceModalMeta.textContent = text;
       }
 
       function renderSourceTable() {
+        let rowsHtml = "";
         if (state.remoteError) {
-          els.sourceRows.innerHTML = `<tr><td class="empty" colspan="6">${escapeHtml(state.remoteError)}</td></tr>`;
-          return;
-        }
-
-        const source = currentSource();
-        const searchText = els.sourceSearch.value.trim().toUpperCase();
-        const manualPairs = new Set(state.manualPairs.map((pair) => manualKey(pair)));
-        const localDataSymbols = new Set(
-          state.localPairs.filter((pair) => pair.source === source).map((pair) => pair.symbol)
-        );
-        const activeSymbols = new Set(activeJobs().map((job) => job.symbol));
-        const filtered = state.remotePairs.filter((pair) => {
-          if (!searchText) {
-            return true;
-          }
-          return (
-            pair.symbol.includes(searchText) ||
-            pair.display_symbol.includes(searchText) ||
-            pair.base_asset.includes(searchText) ||
-            pair.quote_asset.includes(searchText)
+          rowsHtml = `<tr><td class="empty" colspan="6">${escapeHtml(state.remoteError)}</td></tr>`;
+        } else {
+          const source = currentSource();
+          const searchText = state.sourceSearchQuery.trim().toUpperCase();
+          const manualPairs = new Set(state.manualPairs.map((pair) => manualKey(pair)));
+          const localDataSymbols = new Set(
+            state.localPairs.filter((pair) => pair.source === source).map((pair) => pair.symbol)
           );
-        });
+          const activeSymbols = new Set(activeJobs().map((job) => job.symbol));
+          const filtered = state.remotePairs.filter((pair) => {
+            if (!searchText) {
+              return true;
+            }
+            return (
+              pair.symbol.includes(searchText) ||
+              pair.display_symbol.includes(searchText) ||
+              pair.base_asset.includes(searchText) ||
+              pair.quote_asset.includes(searchText)
+            );
+          });
 
-        if (filtered.length === 0) {
-          els.sourceRows.innerHTML = '<tr><td class="empty" colspan="6">没有匹配的交易对</td></tr>';
-          return;
+          if (filtered.length === 0) {
+            rowsHtml = '<tr><td class="empty" colspan="6">没有匹配的交易对</td></tr>';
+          } else {
+            rowsHtml = filtered.map((pair) => {
+              const inManual = manualPairs.has(manualKey(pair));
+              const inLocalData = localDataSymbols.has(pair.symbol);
+              const canDownload = source === "binance";
+              const active = canDownload && activeSymbols.has(pair.symbol);
+              return `
+                <tr>
+                  <td>
+                    <div class="symbol-cell">
+                      <div class="symbol-main">${escapeHtml(pair.display_symbol)}</div>
+                      <div class="subline">${escapeHtml(pair.symbol)}</div>
+                    </div>
+                  </td>
+                  <td><span class="pill ${pair.tradeable ? "status-trading" : "status-other"}">${escapeHtml(pair.status)}</span></td>
+                  <td>${renderAssetPair(pair.base_asset, pair.quote_asset)}</td>
+                  <td><span class="pill ${inManual ? "good" : "warn"}">${inManual ? "已添加" : "未添加"}</span></td>
+                  <td><span class="pill ${inLocalData ? "good" : "warn"}">${inLocalData ? "已下载" : "未下载"}</span></td>
+                  <td class="pill-row">
+                    ${
+                      canDownload
+                        ? `<button class="button-small" type="button" data-action="download-source" data-symbol="${escapeHtml(pair.symbol)}" ${active ? "disabled" : ""}>${active ? "下载中" : "下载数据"}</button>`
+                        : ""
+                    }
+                    <button class="button-secondary button-small" type="button" data-action="add-manual" data-source="${escapeHtml(pair.source)}" data-display="${escapeHtml(pair.display_symbol)}" data-symbol="${escapeHtml(pair.symbol)}" data-quote="${escapeHtml(pair.quote_asset)}" ${inManual ? "disabled" : ""}>${inManual ? "已加入" : "加入本地交易"}</button>
+                  </td>
+                </tr>
+              `;
+            }).join("");
+          }
         }
 
-        els.sourceRows.innerHTML = filtered.map((pair) => {
-          const inManual = manualPairs.has(manualKey(pair));
-          const inLocalData = localDataSymbols.has(pair.symbol);
-          const canDownload = source === "binance";
-          const active = canDownload && activeSymbols.has(pair.symbol);
-          return `
-            <tr>
-              <td>
-                <div class="symbol-cell">
-                  <div class="symbol-main">${escapeHtml(pair.display_symbol)}</div>
-                  <div class="subline">${escapeHtml(pair.symbol)}</div>
-                </div>
-              </td>
-              <td><span class="pill ${pair.tradeable ? "status-trading" : "status-other"}">${escapeHtml(pair.status)}</span></td>
-              <td>${renderAssetPair(pair.base_asset, pair.quote_asset)}</td>
-              <td><span class="pill ${inManual ? "good" : "warn"}">${inManual ? "已添加" : "未添加"}</span></td>
-              <td><span class="pill ${inLocalData ? "good" : "warn"}">${inLocalData ? "已下载" : "未下载"}</span></td>
-              <td class="pill-row">
-                ${
-                  canDownload
-                    ? `<button class="button-small" type="button" data-action="download-source" data-symbol="${escapeHtml(pair.symbol)}" ${active ? "disabled" : ""}>${active ? "下载中" : "下载数据"}</button>`
-                    : ""
-                }
-                <button class="button-secondary button-small" type="button" data-action="add-manual" data-source="${escapeHtml(pair.source)}" data-display="${escapeHtml(pair.display_symbol)}" data-symbol="${escapeHtml(pair.symbol)}" data-quote="${escapeHtml(pair.quote_asset)}" ${inManual ? "disabled" : ""}>${inManual ? "已加入" : "加入本地交易"}</button>
-              </td>
-            </tr>
-          `;
-        }).join("");
+        els.sourceRows.innerHTML = rowsHtml;
+        els.sourceModalRows.innerHTML = rowsHtml;
       }
 
       function renderManualList() {
@@ -2845,6 +3508,7 @@
         }
 
         els.backtestJobsList.innerHTML = state.backtestJobs.slice(0, 8).map((job) => {
+          const strategyTitle = job.display_name || job.strategy_name;
           const detail = [
             job.engine,
             job.data_version || "未知 data_version",
@@ -2857,8 +3521,8 @@
             <article class="job-card">
               <div class="job-head">
                 <div class="symbol-cell">
-                  <div class="symbol-main">${escapeHtml(job.strategy_name)} / ${escapeHtml(job.strategy_version)}</div>
-                  <div class="subline">${escapeHtml(detail)}</div>
+                  <div class="symbol-main">${escapeHtml(strategyTitle)} / ${escapeHtml(job.strategy_version)}</div>
+                  <div class="subline">${escapeHtml(job.strategy_name)} · ${escapeHtml(detail)}</div>
                 </div>
                 <span class="pill job-${job.status}">${escapeHtml(job.status.toUpperCase())}</span>
               </div>
@@ -2866,6 +3530,50 @@
               <div class="subline">${escapeHtml(shortPath(job.input_path))}</div>
               <div class="subline">${escapeHtml(metricText)}</div>
               ${job.error ? `<div class="subline">错误: ${escapeHtml(job.error)}</div>` : ""}
+            </article>
+          `;
+        }).join("");
+      }
+
+      function renderStrategyRootManager() {
+        if (!state.settings) {
+          els.strategyRootsMeta.textContent = "系统设置尚未加载，暂时无法显示外部策略目录。";
+          els.strategyRootsGrid.innerHTML = '<div class="empty">系统设置尚未加载</div>';
+          return;
+        }
+
+        const mergedRoots = Array.isArray(state.settings.extra_strategy_roots)
+          ? state.settings.extra_strategy_roots
+          : [];
+        const configuredRoots = new Set(
+          Array.isArray(state.settings.configured_extra_strategy_roots)
+            ? state.settings.configured_extra_strategy_roots
+            : []
+        );
+        const persistedRoots = new Set(
+          Array.isArray(state.settings.persisted_extra_strategy_roots)
+            ? state.settings.persisted_extra_strategy_roots
+            : []
+        );
+        els.strategyRootsMeta.textContent = `当前额外策略目录 ${mergedRoots.length} 个，启动参数 ${configuredRoots.size} 个，后台已保存 ${persistedRoots.size} 个。`;
+
+        if (mergedRoots.length === 0) {
+          els.strategyRootsGrid.innerHTML = '<div class="empty">还没有额外策略目录，添加后会自动刷新策略列表。</div>';
+          return;
+        }
+
+        els.strategyRootsGrid.innerHTML = mergedRoots.map((rootPath) => {
+          const labels = [];
+          if (configuredRoots.has(rootPath)) {
+            labels.push("启动参数");
+          }
+          if (persistedRoots.has(rootPath)) {
+            labels.push("已保存");
+          }
+          return `
+            <article class="settings-card">
+              <div class="field-label">${escapeHtml(labels.join(" / ") || "额外目录")}</div>
+              <div class="settings-value">${escapeHtml(rootPath)}</div>
             </article>
           `;
         }).join("");
@@ -2881,6 +3589,8 @@
           activeBacktestJobs().map((job) => `${job.strategy_id}:${job.engine}`)
         );
         els.strategyRows.innerHTML = state.strategies.map((strategy) => {
+          const strategyTitle = strategy.display_name || strategy.strategy_name;
+          const selected = state.selectedStrategyPath === strategy.strategy_path;
           const symbolText = strategy.symbols && strategy.symbols.length ? strategy.symbols.join(", ") : "未配置";
           const runButtons = ["native", "bt", "backtrader"].map((engine) => {
             const active = activeBacktestKeys.has(`${strategy.strategy_id}:${engine}`);
@@ -2902,10 +3612,13 @@
             strategy.input_exists ? "输入已就绪" : "输入缺失",
           ].join(" | ");
           return `
-            <tr>
+            <tr ${selected ? 'style="background: rgba(240, 185, 11, 0.08);"' : ""}>
               <td>
                 <div class="symbol-cell">
-                  <div class="symbol-main">${escapeHtml(strategy.strategy_name)} / ${escapeHtml(strategy.strategy_version)}</div>
+                  <div class="symbol-main">${escapeHtml(strategyTitle)} / ${escapeHtml(strategy.strategy_version)}</div>
+                  <div class="subline">
+                    ${escapeHtml(strategy.strategy_name)} · ${escapeHtml(strategy.location_kind === "external" ? "外部私有策略" : "工作区策略")}
+                  </div>
                   <div class="subline">${escapeHtml(strategy.description || "无描述")}</div>
                 </div>
               </td>
@@ -2918,9 +3631,20 @@
                 ${escapeHtml(strategy.exchange || "-")} / ${escapeHtml(strategy.market_type || "-")}<br />
                 引擎 ${escapeHtml(strategy.configured_engine || "native")}<br />
                 ${escapeHtml(strategy.backtest_start || "-")} → ${escapeHtml(strategy.backtest_end || "-")}<br />
-                ${escapeHtml(symbolText)}
+                ${escapeHtml(symbolText)}<br />
+                ${escapeHtml(shortPath(strategy.strategy_root))}
               </td>
-              <td><div class="pill-row">${runButtons}</div></td>
+              <td>
+                <div class="pill-row">
+                  <button
+                    class="button-ghost button-small"
+                    type="button"
+                    data-action="open-strategy-editor"
+                    data-strategy-path="${escapeHtml(strategy.strategy_path)}"
+                  >${selected ? "已选中" : "调参"}</button>
+                  ${runButtons}
+                </div>
+              </td>
               <td class="subline">${escapeHtml(statusText)}</td>
             </tr>
           `;
@@ -2957,6 +3681,7 @@
         }
 
         els.backtestRows.innerHTML = state.backtests.map((record) => {
+          const strategyTitle = record.display_name || record.strategy_name;
           const artifactText = [
             `summary ${record.summary_exists ? "yes" : "no"}`,
             `trades ${record.trades_exists ? "yes" : "no"}`,
@@ -2969,8 +3694,8 @@
               <td class="subline">${escapeHtml(runLabel)}<br />${escapeHtml(record.engine || "-")}</td>
               <td>
                 <div class="symbol-cell">
-                  <div class="symbol-main">${escapeHtml(record.strategy_name)} / ${escapeHtml(record.strategy_version)}</div>
-                  <div class="subline">${escapeHtml(shortPath(record.input_path))}</div>
+                  <div class="symbol-main">${escapeHtml(strategyTitle)} / ${escapeHtml(record.strategy_version)}</div>
+                  <div class="subline">${escapeHtml(record.strategy_name)} · ${escapeHtml(shortPath(record.input_path))}</div>
                 </div>
               </td>
               <td>
@@ -3043,21 +3768,22 @@
 
         const report = state.backtestReport;
         const record = report.record || {};
+        const strategyTitle = record.display_name || record.strategy_name || "-";
         const metrics = report.metrics || {};
         const trades = report.trades || {};
         const points = report.equity && Array.isArray(report.equity.points) ? report.equity.points : [];
         const artifactRows = Array.isArray(report.artifacts) ? report.artifacts : [];
 
-        els.backtestReportMeta.textContent = `${record.strategy_name || "-"} / ${record.strategy_version || "-"} | ${record.engine || "-"} | 更新时间 ${formatTime(record.updated_at)}`;
+        els.backtestReportMeta.textContent = `${strategyTitle} / ${record.strategy_version || "-"} | ${record.engine || "-"} | 更新时间 ${formatTime(record.updated_at)}`;
         els.backtestReportBody.className = "";
         els.backtestReportBody.innerHTML = `
           <div class="report-shell">
             <section class="report-hero">
               <div>
                 <p class="report-kicker">Backtest Report</p>
-                <h3 class="report-title">${escapeHtml(record.strategy_name || "-")} / ${escapeHtml(record.strategy_version || "-")}</h3>
+                <h3 class="report-title">${escapeHtml(strategyTitle)} / ${escapeHtml(record.strategy_version || "-")}</h3>
                 <p class="report-copy">
-                  状态 ${escapeHtml(record.status || "-")}，输入 ${escapeHtml(shortPath(record.input_path))}。<br />
+                  标识 ${escapeHtml(record.strategy_name || "-")}，状态 ${escapeHtml(record.status || "-")}，输入 ${escapeHtml(shortPath(record.input_path))}。<br />
                   区间 ${escapeHtml(report.summary && report.summary.start_date ? report.summary.start_date : "-")} → ${escapeHtml(report.summary && report.summary.end_date ? report.summary.end_date : "-")}
                 </p>
               </div>
@@ -3114,6 +3840,26 @@
                 <p class="report-metric-value">${escapeHtml(String(trades.wins ?? 0))} / ${escapeHtml(String(trades.losses ?? 0))}</p>
                 <div class="report-metric-note">胜 / 负</div>
               </article>
+              <article class="report-metric-card">
+                <p class="report-metric-label">Active Ratio</p>
+                <p class="report-metric-value">${escapeHtml(formatPct(metrics.active_ratio))}</p>
+                <div class="report-metric-note">持仓 bars ${escapeHtml(String(metrics.active_point_count ?? 0))}</div>
+              </article>
+              <article class="report-metric-card">
+                <p class="report-metric-label">Exposure</p>
+                <p class="report-metric-value">${escapeHtml(formatPct(metrics.avg_gross_exposure))}</p>
+                <div class="report-metric-note">峰值暴露 ${escapeHtml(formatPct(metrics.max_gross_exposure))}</div>
+              </article>
+              <article class="report-metric-card">
+                <p class="report-metric-label">Cash Buffer</p>
+                <p class="report-metric-value">${escapeHtml(formatPct(metrics.avg_cash_ratio))}</p>
+                <div class="report-metric-note">最小现金占比 ${escapeHtml(formatPct(metrics.min_cash_ratio))}</div>
+              </article>
+              <article class="report-metric-card">
+                <p class="report-metric-label">Duration</p>
+                <p class="report-metric-value">${escapeHtml(formatNumber(metrics.duration_days, 1))}</p>
+                <div class="report-metric-note">days / ${escapeHtml(String(report.equity ? report.equity.point_count : 0))} bars</div>
+              </article>
             </section>
 
             <section class="report-chart-grid">
@@ -3136,6 +3882,16 @@
                   <span class="pill warn">${escapeHtml(formatPct(metrics.max_drawdown))}</span>
                 </div>
                 <div class="report-chart-frame">${buildChartSvg(points, "drawdown", "#f6465d", "rgba(246, 70, 93, 0.38)")}</div>
+              </article>
+              <article class="report-chart-card">
+                <div class="report-chart-head">
+                  <div>
+                    <h3>风险暴露</h3>
+                    <p class="page-subtitle">观察仓位利用率是否长期满仓，以及退出后现金是否有效回收。</p>
+                  </div>
+                  <span class="pill info">${escapeHtml(formatPct(metrics.max_gross_exposure))}</span>
+                </div>
+                <div class="report-chart-frame">${buildChartSvg(points, "gross_exposure", "#13c2c2", "rgba(19, 194, 194, 0.34)")}</div>
               </article>
             </section>
 
@@ -3184,6 +3940,35 @@
                       <div class="subline">${item.exists ? "已存在" : "缺失"}${item.size_bytes ? ` | ${item.size_bytes} bytes` : ""}</div>
                     </div>
                   `).join("")}
+                </div>
+              </article>
+              <article class="report-detail-card">
+                <div class="report-detail-head">
+                  <div>
+                    <h3>运行上下文</h3>
+                    <p class="page-subtitle">把配置路径、输入源和暴露统计放在一起，方便快速复盘本次运行。</p>
+                  </div>
+                </div>
+                <div class="report-detail-list">
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">策略配置</div>
+                    <div class="symbol-main">${escapeHtml(shortPath(record.strategy_path))}</div>
+                    <div class="subline">${escapeHtml(record.run_id ? "动态运行产物" : "固定产物回看")}</div>
+                  </div>
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">输入数据</div>
+                    <div class="symbol-main">${escapeHtml(shortPath(record.input_path))}</div>
+                    <div class="subline">报告生成 ${escapeHtml(formatTime(report.report_generated_at))}</div>
+                  </div>
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">平均 / 峰值暴露</div>
+                    <div class="symbol-main">${escapeHtml(formatPct(metrics.avg_gross_exposure))} / ${escapeHtml(formatPct(metrics.max_gross_exposure))}</div>
+                  </div>
+                  <div class="report-detail-item">
+                    <div class="report-metric-label">现金缓冲</div>
+                    <div class="symbol-main">${escapeHtml(formatPct(metrics.avg_cash_ratio))} / ${escapeHtml(formatPct(metrics.min_cash_ratio))}</div>
+                    <div class="subline">平均 / 最小现金占比</div>
+                  </div>
                 </div>
               </article>
             </section>
@@ -3235,6 +4020,7 @@
         const settingsItems = [
           ["币种图标数量", String(state.settings.currency_icon_count)],
           ["缺失币种图标", String(state.settings.currency_icon_missing_count)],
+          ["策略根目录数", String((state.settings.strategy_roots || []).length)],
           ["Binance ExchangeInfo", state.settings.exchange_info_base_url],
           ["Binance Market Data", state.settings.market_data_base_url],
           ["默认报价资产", state.settings.default_quote_asset],
@@ -3247,6 +4033,7 @@
           ["DuckDB 装载任务数", String(state.settings.duckdb_load_job_count)],
           ["回测任务数", String(state.settings.backtest_job_count)],
           ["Charting Bundle", state.settings.charting_library_bundle_exists ? "已就绪" : "按需缓存"],
+          ["策略根目录", (state.settings.strategy_roots || []).join(" | ") || "未配置"],
         ];
 
         els.settingsGrid.innerHTML = settingsItems.map(([label, value]) => {
@@ -3309,7 +4096,9 @@
       function renderAll() {
         renderNav();
         renderPageVisibility();
+        renderSourceModal();
         renderSourceSwitchButtons();
+        renderSourceSearchInputs();
         renderLocalSourceOptions();
         renderSourceHeading();
         renderMetrics();
@@ -3328,7 +4117,9 @@
         renderDuckdbJobs();
         renderChartControls();
         renderBacktestJobs();
+        renderStrategyRootManager();
         renderStrategies();
+        renderStrategyEditor();
         renderBacktests();
         renderBacktestReport();
         renderSettings();
@@ -3365,6 +4156,28 @@
       async function loadStrategies() {
         const payload = await requestJson("/api/strategies");
         state.strategies = payload.strategies || [];
+        if (
+          state.selectedStrategyPath &&
+          !state.strategies.some((strategy) => strategy.strategy_path === state.selectedStrategyPath)
+        ) {
+          state.selectedStrategyPath = "";
+          state.strategyConfig = null;
+          state.strategyEditorDraft = null;
+        }
+      }
+
+      async function loadStrategyConfig(strategyPath) {
+        if (!strategyPath) {
+          state.selectedStrategyPath = "";
+          state.strategyConfig = null;
+          state.strategyEditorDraft = null;
+          return;
+        }
+        const params = new URLSearchParams();
+        params.set("strategy_path", strategyPath);
+        state.selectedStrategyPath = strategyPath;
+        state.strategyConfig = await requestJson(`/api/strategy-config?${params.toString()}`);
+        state.strategyEditorDraft = createStrategyEditorDraft(state.strategyConfig);
       }
 
       async function loadBacktests() {
@@ -3500,6 +4313,10 @@
             }
           }
           renderAll();
+          if (state.pendingSourceModalOpen) {
+            state.pendingSourceModalOpen = false;
+            await openSourceModal();
+          }
           setStatus(`加载完成 ${formatTime(new Date().toISOString())}`);
         } catch (error) {
           renderAll();
@@ -3606,7 +4423,28 @@
         });
         await Promise.all([loadBacktestJobs(), loadBacktests()]);
         renderAll();
-        setStatus(`已创建回测任务 ${response.job.strategy_name} / ${response.job.engine}`);
+        setStatus(`已创建回测任务 ${(response.job.display_name || response.job.strategy_name)} / ${response.job.engine}`);
+      }
+
+      async function createStrategyRoot(payload) {
+        const response = await requestJson("/api/strategy-roots", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        await Promise.all([loadSettings(), loadStrategies()]);
+        return response;
+      }
+
+      async function createStrategyClone(payload) {
+        const response = await requestJson("/api/clone-strategy-config", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        await loadStrategies();
+        await loadStrategyConfig(response.strategy_path);
+        renderAll();
+        setStatus(`已生成新策略 ${shortPath(response.strategy_path)}`);
+        return response;
       }
 
       function destroyChartWidget() {
@@ -3931,19 +4769,147 @@
         }
       }
 
+      async function handleAddStrategyRoot() {
+        const rootPath = els.strategyRootInput.value.trim();
+        if (!rootPath) {
+          setStatus("请先填写外部策略目录路径", true);
+          return;
+        }
+
+        setStatus(`正在添加外部策略目录 ${shortPath(rootPath)}...`);
+        try {
+          const response = await createStrategyRoot({ root_path: rootPath });
+          const strategiesInRoot = state.strategies.filter((strategy) => strategy.strategy_root === response.root_path);
+          if (
+            !state.selectedStrategyPath &&
+            strategiesInRoot.length > 0
+          ) {
+            await loadStrategyConfig(strategiesInRoot[0].strategy_path);
+          }
+          els.strategyRootInput.value = "";
+          renderAll();
+          setStatus(
+            response.created
+              ? `已添加外部策略目录 ${shortPath(response.root_path)}，发现 ${response.strategy_count} 条策略`
+              : `目录已存在 ${shortPath(response.root_path)}，当前共发现 ${response.strategy_count} 条策略`
+          );
+        } catch (error) {
+          renderAll();
+          setStatus(error.message || "添加外部策略目录失败", true);
+        }
+      }
+
+      async function handleOpenStrategyEditor(strategyPath) {
+        if (!strategyPath) {
+          return;
+        }
+        setStatus(`正在加载策略参数 ${shortPath(strategyPath)}...`);
+        try {
+          await loadStrategyConfig(strategyPath);
+          renderAll();
+          setStatus(`已加载策略参数 ${shortPath(strategyPath)}`);
+        } catch (error) {
+          renderAll();
+          setStatus(error.message || "加载策略参数失败", true);
+        }
+      }
+
+      async function handleSaveStrategyClone(runAfterSave = false) {
+        let payload;
+        try {
+          payload = buildStrategyClonePayload();
+        } catch (error) {
+          setStatus(error.message || "读取策略参数失败", true);
+          return;
+        }
+
+        setStatus(runAfterSave ? "正在保存新策略并创建回测任务..." : "正在保存新策略...");
+        try {
+          const response = await createStrategyClone(payload);
+          if (runAfterSave) {
+            await createBacktestJob({
+              strategy_path: response.strategy_path,
+              engine: payload.run_engine,
+              skip_signal_write: false,
+            });
+          }
+          await Promise.all([loadBacktests(), loadBacktestJobs()]);
+          renderAll();
+          setStatus(
+            runAfterSave
+              ? `已生成并运行新策略 ${shortPath(response.strategy_path)}`
+              : `已生成新策略 ${shortPath(response.strategy_path)}`
+          );
+        } catch (error) {
+          renderAll();
+          setStatus(error.message || "保存策略失败", true);
+        }
+      }
+
+      async function openSourceModal() {
+        const preferredSource = currentLocalFilterSource() !== "all" ? currentLocalFilterSource() : currentSource();
+        const shouldReload = preferredSource !== state.selectedSource || !state.remoteMeta;
+        state.selectedPage = "local-data";
+        state.sourceModalOpen = true;
+        state.sourceSearchQuery = "";
+        if (preferredSource !== state.selectedSource) {
+          state.selectedSource = preferredSource;
+        }
+        if (shouldReload) {
+          state.remotePairs = [];
+          state.remoteMeta = null;
+          state.remoteError = "";
+        }
+        renderAll();
+
+        if (shouldReload) {
+          setStatus(`正在加载 ${SOURCE_LABELS[preferredSource]} 数据源...`);
+          try {
+            await Promise.all([loadSourcePairs(preferredSource), loadManualPairs(), loadLocalPairs()]);
+            renderAll();
+            setStatus(`${SOURCE_LABELS[preferredSource]} 数据源已加载`);
+          } catch (error) {
+            renderAll();
+            setStatus(error.message || "加载数据源失败", true);
+          }
+        }
+
+        if (state.sourceModalOpen) {
+          els.sourceModalSearch.focus();
+        }
+      }
+
+      function closeSourceModal() {
+        if (!state.sourceModalOpen) {
+          return;
+        }
+        state.sourceModalOpen = false;
+        renderAll();
+      }
+
       async function switchPage(page) {
         if (!page) {
           return;
         }
+        if (page === "data-sources") {
+          state.selectedPage = "local-data";
+          renderAll();
+          await openSourceModal();
+          return;
+        }
         state.selectedPage = page;
         renderAll();
-        if (page === "data-sources" && !state.remoteMeta) {
-          await loadSourcePairs();
+        if (page === "charting-library") {
+          await loadDuckdbSymbols();
           renderAll();
           return;
         }
-        if (page === "charting-library") {
-          await loadDuckdbSymbols();
+        if (page === "strategy-showcase" && !state.selectedStrategyPath && state.strategies.length) {
+          try {
+            await loadStrategyConfig(state.strategies[0].strategy_path);
+          } catch (_error) {
+            state.strategyConfig = null;
+          }
           renderAll();
           return;
         }
@@ -3988,9 +4954,18 @@
         });
       });
 
-      els.sourceSearch.addEventListener("input", renderSourceTable);
+      function handleSourceSearchInput(event) {
+        state.sourceSearchQuery = event.target.value || "";
+        renderSourceSearchInputs();
+        renderSourceTable();
+      }
+
+      els.sourceSearch.addEventListener("input", handleSourceSearchInput);
+      els.sourceModalSearch.addEventListener("input", handleSourceSearchInput);
       els.localSearch.addEventListener("input", renderLocalData);
       els.currencyIconSearch.addEventListener("input", renderCurrencyIcons);
+      els.openSourceModalButton.addEventListener("click", openSourceModal);
+      els.closeSourceModalButton.addEventListener("click", closeSourceModal);
 
       els.localSourceFilter.addEventListener("change", () => {
         state.selectedLocalSource = els.localSourceFilter.value || "all";
@@ -4011,6 +4986,15 @@
       els.normalizeAllButton.addEventListener("click", handleNormalizeAll);
       els.loadDuckdbButton.addEventListener("click", handleLoadDuckdb);
       els.loadChartButton.addEventListener("click", loadChartWidget);
+      els.addStrategyRootButton.addEventListener("click", handleAddStrategyRoot);
+
+      els.strategyRootInput.addEventListener("keydown", async (event) => {
+        if (event.key !== "Enter") {
+          return;
+        }
+        event.preventDefault();
+        await handleAddStrategyRoot();
+      });
 
       els.tradeableOnly.addEventListener("change", async () => {
         setStatus(`正在刷新 ${SOURCE_LABELS[currentSource()]} 交易对...`);
@@ -4030,7 +5014,7 @@
         setStatus(`${SOURCE_LABELS[currentSource()]} 交易对已刷新`);
       });
 
-      els.sourceRows.addEventListener("click", async (event) => {
+      async function handleSourceTableAction(event, { navigateToLocalData = false } = {}) {
         const button = event.target.closest("button[data-action]");
         if (!button) {
           return;
@@ -4055,12 +5039,20 @@
                 quote_asset: button.getAttribute("data-quote") || "USDT",
                 note: null,
               },
-              { navigateToLocalData: true }
+              { navigateToLocalData }
             );
           } catch (error) {
             setStatus(error.message || "添加本地交易失败", true);
           }
         }
+      }
+
+      els.sourceRows.addEventListener("click", async (event) => {
+        await handleSourceTableAction(event, { navigateToLocalData: true });
+      });
+
+      els.sourceModalRows.addEventListener("click", async (event) => {
+        await handleSourceTableAction(event);
       });
 
       els.localRows.addEventListener("click", async (event) => {
@@ -4084,8 +5076,17 @@
       });
 
       els.strategyRows.addEventListener("click", async (event) => {
-        const button = event.target.closest("button[data-action='run-backtest']");
+        const button = event.target.closest("button[data-action]");
         if (!button) {
+          return;
+        }
+        const action = button.getAttribute("data-action");
+        if (action === "open-strategy-editor") {
+          const strategyPath = button.getAttribute("data-strategy-path");
+          await handleOpenStrategyEditor(strategyPath);
+          return;
+        }
+        if (action !== "run-backtest") {
           return;
         }
         const strategyPath = button.getAttribute("data-strategy-path");
@@ -4094,6 +5095,36 @@
           return;
         }
         await handleRunBacktest(strategyPath, engine);
+      });
+
+      els.strategyEditorBody.addEventListener("click", async (event) => {
+        const target = event.target.closest("button");
+        if (!target) {
+          return;
+        }
+        if (target.id === "saveStrategyCloneButton") {
+          await handleSaveStrategyClone(false);
+          return;
+        }
+        if (target.id === "saveAndRunStrategyCloneButton") {
+          await handleSaveStrategyClone(true);
+        }
+      });
+
+      els.strategyEditorBody.addEventListener("input", () => {
+        try {
+          syncStrategyEditorDraftFromDom();
+        } catch (_error) {
+          // Keep typing responsive; validation happens on submit.
+        }
+      });
+
+      els.strategyEditorBody.addEventListener("change", () => {
+        try {
+          syncStrategyEditorDraftFromDom();
+        } catch (_error) {
+          // Keep typing responsive; validation happens on submit.
+        }
       });
 
       els.backtestRows.addEventListener("click", async (event) => {
@@ -4180,6 +5211,18 @@
         state.selectedChartSymbol = els.chartSymbolSelect.value || "";
         destroyChartWidget();
         renderAll();
+      });
+
+      els.sourceModal.addEventListener("click", (event) => {
+        if (event.target === els.sourceModal) {
+          closeSourceModal();
+        }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && state.sourceModalOpen) {
+          closeSourceModal();
+        }
       });
 
       setInterval(() => {

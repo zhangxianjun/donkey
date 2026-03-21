@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import json
 import mimetypes
+import os
 import platform
 import re
 import sys
@@ -49,6 +51,8 @@ DEFAULT_PORT = 8866
 DEFAULT_RAW_ROOT = Path("data/raw/binance/spot")
 DEFAULT_NORMALIZED_ROOT = Path("data/normalized")
 DEFAULT_STRATEGIES_ROOT = Path("config/strategies")
+EXTRA_STRATEGY_ROOTS_ENV = "DONKEY_EXTRA_STRATEGY_ROOTS"
+DEFAULT_STRATEGY_ROOT_STORE = Path("data/admin/strategy_roots.json")
 DEFAULT_BACKTESTS_ROOT = Path("data/backtests")
 DEFAULT_LOGS_ROOT = Path("logs")
 DEFAULT_QUANT_DB_PATH = Path("db/quant.duckdb")
@@ -68,6 +72,7 @@ CHARTING_LIBRARY_SAMEORIGIN_PATH = CHARTING_LIBRARY_STATIC_ROOT / "sameorigin.ht
 CHARTING_LIBRARY_HOSTED_BASE_URL = "https://charting-library.tradingview-widget.com/charting_library/"
 CHARTING_LIBRARY_FETCH_TIMEOUT_SECONDS = 30.0
 CHARTING_LIBRARY_FETCH_LOCK = threading.Lock()
+STRATEGY_ROOT_STORE_LOCK = threading.Lock()
 DEFAULT_NORMALIZE_OUTPUT_FORMAT = "auto"
 SUPPORTED_NORMALIZE_SOURCES = {"binance"}
 ALLOWED_CURRENCY_ICON_EXTENSIONS = {
@@ -78,6 +83,8 @@ ALLOWED_CURRENCY_ICON_EXTENSIONS = {
     ".jpeg": "image/jpeg",
 }
 ASSET_INVALID_CHAR_PATTERN = re.compile(r"[\\/\x00-\x1f]")
+STRATEGY_CLONE_FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+\.ya?ml$")
+STRATEGY_FIELD_PATH_PATTERN = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$")
 SOURCE_ORDER = ("binance", "okx", "bybit", "hl")
 SOURCE_LABELS = {
     "binance": "币安",
@@ -124,7 +131,10 @@ class StrategyEntry:
     strategy_id: str
     strategy_name: str
     strategy_version: str
+    display_name: str | None
     description: str
+    strategy_root: str
+    location_kind: str
     exchange: str | None
     market_type: str | None
     interval: str | None
@@ -151,10 +161,12 @@ class BacktestRecord:
     run_id: str | None
     strategy_id: str
     strategy_name: str
+    display_name: str | None
     strategy_version: str
     engine: str | None
     status: str
     input_path: str | None
+    strategy_path: str | None
     manifest_path: str | None
     report_available: bool
     summary_path: str | None
@@ -177,6 +189,8 @@ class DashboardConfig:
     raw_root: Path
     normalized_root: Path
     strategies_root: Path
+    extra_strategy_roots: tuple[Path, ...]
+    strategy_root_store_path: Path
     backtests_root: Path
     logs_root: Path
     quant_db_path: Path
@@ -281,12 +295,29 @@ class BacktestRunRequest:
     skip_signal_write: bool
 
 
+@dataclass(frozen=True)
+class StrategyCloneRequest:
+    source_strategy_path: str
+    target_filename: str
+    strategy_name: str
+    strategy_version: str
+    display_name: str | None
+    description: str | None
+    updates: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class StrategyRootRequest:
+    root_path: str
+
+
 @dataclass
 class BacktestJob:
     job_id: str
     run_id: str
     strategy_id: str
     strategy_name: str
+    display_name: str | None
     strategy_version: str
     engine: str
     interval: str | None
@@ -339,6 +370,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--strategies-root",
         default=str(DEFAULT_STRATEGIES_ROOT),
         help="Strategy config root.",
+    )
+    parser.add_argument(
+        "--extra-strategy-root",
+        action="append",
+        default=None,
+        help=(
+            "Additional strategy config root. Can be repeated. "
+            f"Also supports {EXTRA_STRATEGY_ROOTS_ENV} with os.pathsep-separated paths."
+        ),
+    )
+    parser.add_argument(
+        "--strategy-root-store",
+        default=str(DEFAULT_STRATEGY_ROOT_STORE),
+        help="Persistent JSON storage for UI-added external strategy roots.",
     )
     parser.add_argument(
         "--backtests-root",
@@ -1861,6 +1906,412 @@ def parse_simple_yaml_file(path: Path) -> dict[str, Any]:
     return root
 
 
+def yaml_scalar_to_text(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    text = str(value)
+    if text == "":
+        return '""'
+    if text.strip() != text:
+        return json.dumps(text, ensure_ascii=False)
+    if any(char in text for char in {":", "#", "\n", "\r", "\t"}):
+        return json.dumps(text, ensure_ascii=False)
+    if text.lower() in {"null", "true", "false", "~"}:
+        return json.dumps(text, ensure_ascii=False)
+    try:
+        int(text)
+        return json.dumps(text, ensure_ascii=False)
+    except ValueError:
+        pass
+    try:
+        float(text)
+        return json.dumps(text, ensure_ascii=False)
+    except ValueError:
+        pass
+    return text
+
+
+def is_yaml_scalar_value(value: Any) -> bool:
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def dump_simple_yaml_lines(value: Any, *, indent: int = 0) -> list[str]:
+    prefix = " " * indent
+    if isinstance(value, dict):
+        lines: list[str] = []
+        for key, item in value.items():
+            if isinstance(item, dict):
+                lines.append(f"{prefix}{key}:")
+                lines.extend(dump_simple_yaml_lines(item, indent=indent + 2))
+            elif isinstance(item, list):
+                lines.append(f"{prefix}{key}:")
+                if not item:
+                    continue
+                for entry in item:
+                    if not is_yaml_scalar_value(entry):
+                        raise ValueError("Only lists of scalar values are supported when saving strategy configs.")
+                    lines.append(f"{prefix}  - {yaml_scalar_to_text(entry)}")
+            else:
+                lines.append(f"{prefix}{key}: {yaml_scalar_to_text(item)}")
+        return lines
+    raise ValueError("Top-level YAML payload must be a mapping.")
+
+
+def dump_simple_yaml(value: dict[str, Any]) -> str:
+    return "\n".join(dump_simple_yaml_lines(value)) + "\n"
+
+
+def format_editor_label(value: str) -> str:
+    return value.replace("_", " ").strip().title()
+
+
+def infer_editor_field_type(value: Any) -> str:
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return "number"
+    if isinstance(value, list):
+        return "list_string"
+    return "string"
+
+
+def is_supported_editor_list(value: Any) -> bool:
+    return isinstance(value, list) and all(is_yaml_scalar_value(item) for item in value)
+
+
+def flatten_editor_fields(
+    value: dict[str, Any],
+    *,
+    prefix: str,
+) -> list[dict[str, Any]]:
+    fields: list[dict[str, Any]] = []
+    for key, item in value.items():
+        field_path = f"{prefix}.{key}" if prefix else key
+        if isinstance(item, dict):
+            fields.extend(flatten_editor_fields(item, prefix=field_path))
+            continue
+        if not is_yaml_scalar_value(item) and not is_supported_editor_list(item):
+            continue
+        fields.append(
+            {
+                "path": field_path,
+                "key": key,
+                "label": format_editor_label(key),
+                "type": infer_editor_field_type(item),
+                "value": item,
+            }
+        )
+    return fields
+
+
+def editor_section_title(name: str) -> str:
+    mapping = {
+        "universe": "Universe",
+        "data": "Data",
+        "signal": "Signal",
+        "execution": "Execution",
+        "risk": "Risk",
+        "backtest": "Backtest",
+    }
+    return mapping.get(name, format_editor_label(name))
+
+
+def sanitize_strategy_filename_component(value: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    return sanitized.strip("._-") or "strategy"
+
+
+def clone_version_candidates(base_version: str) -> list[str]:
+    normalized = base_version.strip() or "v1"
+    candidates = [f"{normalized}_cal"]
+    candidates.extend(f"{normalized}_cal{index}" for index in range(2, 20))
+    return candidates
+
+
+def build_strategy_clone_defaults(config: DashboardConfig, entry: StrategyEntry) -> dict[str, Any]:
+    existing_ids = {item.strategy_id for item in discover_strategy_entries(config)}
+    selected_version = f"{entry.strategy_version}_cal"
+    selected_filename = (
+        f"{sanitize_strategy_filename_component(entry.strategy_name)}_"
+        f"{sanitize_strategy_filename_component(selected_version)}.yaml"
+    )
+    for candidate_version in clone_version_candidates(entry.strategy_version):
+        candidate_id = strategy_identifier(entry.strategy_name, candidate_version)
+        candidate_filename = (
+            f"{sanitize_strategy_filename_component(entry.strategy_name)}_"
+            f"{sanitize_strategy_filename_component(candidate_version)}.yaml"
+        )
+        if candidate_id not in existing_ids and not (Path(entry.strategy_root).resolve() / candidate_filename).exists():
+            selected_version = candidate_version
+            selected_filename = candidate_filename
+            break
+
+    source_display_name = entry.display_name or entry.strategy_name
+    clone_display_name = source_display_name if source_display_name.endswith("调参版") else f"{source_display_name} 调参版"
+    return {
+        "strategy_name": entry.strategy_name,
+        "strategy_version": selected_version,
+        "display_name": clone_display_name,
+        "description": entry.description,
+        "target_filename": selected_filename,
+        "target_root": entry.strategy_root,
+        "engine": entry.configured_engine or "native",
+    }
+
+
+def build_strategy_config_payload(config: DashboardConfig, strategy_path: str) -> dict[str, Any]:
+    entry = find_strategy_entry_by_path(config, strategy_path)
+    if entry is None:
+        raise ValueError(f"Strategy not found: {strategy_path}")
+
+    parsed = parse_simple_yaml_file(Path(entry.strategy_path))
+    editable_sections: list[dict[str, Any]] = []
+    section_order = ["universe", "data", "signal", "execution", "risk", "backtest"]
+    included: set[str] = set()
+    for section_name in section_order:
+        section_value = parsed.get(section_name)
+        if not isinstance(section_value, dict):
+            continue
+        fields = flatten_editor_fields(section_value, prefix=section_name)
+        if not fields:
+            continue
+        editable_sections.append(
+            {
+                "name": section_name,
+                "title": editor_section_title(section_name),
+                "fields": fields,
+            }
+        )
+        included.add(section_name)
+
+    for section_name, section_value in parsed.items():
+        if section_name in included or section_name in {"module", "artifacts"}:
+            continue
+        if not isinstance(section_value, dict):
+            continue
+        fields = flatten_editor_fields(section_value, prefix=section_name)
+        if not fields:
+            continue
+        editable_sections.append(
+            {
+                "name": str(section_name),
+                "title": editor_section_title(str(section_name)),
+                "fields": fields,
+            }
+        )
+
+    artifacts = parsed.get("artifacts", {}) if isinstance(parsed.get("artifacts"), dict) else {}
+    module = parsed.get("module", {}) if isinstance(parsed.get("module"), dict) else {}
+    return {
+        "strategy": asdict(entry),
+        "clone_defaults": build_strategy_clone_defaults(config, entry),
+        "editable_sections": editable_sections,
+        "readonly": {
+            "module_path": module.get("path"),
+            "factory_name": module.get("factory_name"),
+            "signal_path": artifacts.get("signal_path"),
+            "trades_path": artifacts.get("trades_path"),
+            "equity_path": artifacts.get("equity_path"),
+            "summary_path": artifacts.get("summary_path"),
+        },
+        "fetched_at": utc_now_iso(),
+    }
+
+
+def set_dotted_value(container: dict[str, Any], path: str, value: Any) -> None:
+    keys = [item for item in path.split(".") if item]
+    if not keys:
+        raise ValueError("Field path must not be empty.")
+    current = container
+    for key in keys[:-1]:
+        if key not in current or not isinstance(current[key], dict):
+            current[key] = {}
+        current = current[key]
+    current[keys[-1]] = value
+
+
+def build_artifact_ext(path_value: Any, default_ext: str) -> str:
+    if path_value is None:
+        return default_ext
+    suffix = Path(str(path_value)).suffix
+    return suffix or default_ext
+
+
+def normalize_clone_artifact_paths(
+    strategy_config: dict[str, Any],
+    *,
+    strategy_id: str,
+    interval: str | None,
+    source_artifacts: dict[str, Any],
+) -> None:
+    artifacts = strategy_config.setdefault("artifacts", {})
+    signal_ext = build_artifact_ext(source_artifacts.get("signal_path"), ".jsonl")
+    trades_ext = build_artifact_ext(source_artifacts.get("trades_path"), ".jsonl")
+    equity_ext = build_artifact_ext(source_artifacts.get("equity_path"), ".jsonl")
+    summary_ext = build_artifact_ext(source_artifacts.get("summary_path"), ".json")
+    interval_token = interval or "bars"
+    artifacts["signal_path"] = f"data/signals/{strategy_id}/{{symbol}}_{interval_token}_signal{signal_ext}"
+    artifacts["trades_path"] = f"data/backtests/{strategy_id}/trades{trades_ext}"
+    artifacts["equity_path"] = f"data/backtests/{strategy_id}/portfolio_equity{equity_ext}"
+    artifacts["summary_path"] = f"data/backtests/{strategy_id}/summary{summary_ext}"
+
+
+def parse_strategy_clone_payload(payload: Any) -> StrategyCloneRequest:
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object.")
+
+    source_strategy_path = str(payload.get("source_strategy_path", "")).strip()
+    if not source_strategy_path:
+        raise ValueError("source_strategy_path is required.")
+
+    target_filename = str(payload.get("target_filename", "")).strip()
+    if not target_filename:
+        raise ValueError("target_filename is required.")
+    if not STRATEGY_CLONE_FILENAME_PATTERN.fullmatch(target_filename):
+        raise ValueError("target_filename must be a simple .yaml filename.")
+
+    strategy_name = str(payload.get("strategy_name", "")).strip()
+    if not strategy_name:
+        raise ValueError("strategy_name is required.")
+
+    strategy_version = str(payload.get("strategy_version", "")).strip()
+    if not strategy_version:
+        raise ValueError("strategy_version is required.")
+
+    display_name = payload.get("display_name")
+    normalized_display_name = str(display_name).strip() if display_name is not None else None
+    if normalized_display_name == "":
+        normalized_display_name = None
+
+    description = payload.get("description")
+    normalized_description = str(description).strip() if description is not None else None
+    if normalized_description == "":
+        normalized_description = None
+
+    raw_updates = payload.get("updates", {})
+    if not isinstance(raw_updates, dict):
+        raise ValueError("updates must be an object.")
+    updates: dict[str, Any] = {}
+    for raw_path, value in raw_updates.items():
+        path = str(raw_path).strip()
+        if not path or not STRATEGY_FIELD_PATH_PATTERN.fullmatch(path):
+            raise ValueError(f"Invalid update field path: {raw_path!r}")
+        if isinstance(value, dict):
+            raise ValueError(f"Unsupported nested update value for {path!r}.")
+        if isinstance(value, list) and not all(is_yaml_scalar_value(item) for item in value):
+            raise ValueError(f"Unsupported list value for {path!r}.")
+        if not isinstance(value, list) and not is_yaml_scalar_value(value):
+            raise ValueError(f"Unsupported value for {path!r}.")
+        updates[path] = value
+
+    return StrategyCloneRequest(
+        source_strategy_path=source_strategy_path,
+        target_filename=target_filename,
+        strategy_name=strategy_name,
+        strategy_version=strategy_version,
+        display_name=normalized_display_name,
+        description=normalized_description,
+        updates=updates,
+    )
+
+
+def parse_strategy_root_payload(payload: Any) -> StrategyRootRequest:
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object.")
+    root_path = str(payload.get("root_path", "")).strip()
+    if not root_path:
+        raise ValueError("root_path is required.")
+    return StrategyRootRequest(root_path=root_path)
+
+
+def add_persisted_strategy_root(config: DashboardConfig, request: StrategyRootRequest) -> dict[str, Any]:
+    resolved_root = resolve_strategy_root_path(config, request.root_path)
+    persisted_roots = list(load_persisted_strategy_roots(config))
+    created = resolved_root not in persisted_roots
+    if created:
+        persisted_roots.append(resolved_root)
+        save_persisted_strategy_roots(config, persisted_roots)
+
+    discovered_entries = [
+        entry
+        for entry in discover_strategy_entries(config)
+        if Path(entry.strategy_root).resolve() == resolved_root
+    ]
+    configured_roots = {path.resolve() for path in config.extra_strategy_roots}
+    persisted_root_set = {path.resolve() for path in load_persisted_strategy_roots(config)}
+    return {
+        "root_path": str(resolved_root),
+        "created": created,
+        "configured_via_cli": resolved_root in configured_roots,
+        "persisted": resolved_root in persisted_root_set,
+        "strategy_count": len(discovered_entries),
+        "strategies": [asdict(entry) for entry in discovered_entries],
+        "saved_at": utc_now_iso(),
+    }
+
+
+def clone_strategy_config(config: DashboardConfig, request: StrategyCloneRequest) -> dict[str, Any]:
+    source_entry = find_strategy_entry_by_path(config, request.source_strategy_path)
+    if source_entry is None:
+        raise ValueError(f"Strategy not found: {request.source_strategy_path}")
+
+    source_path = Path(source_entry.strategy_path).resolve()
+    source_root = Path(source_entry.strategy_root).resolve()
+    target_path = (source_root / request.target_filename).resolve()
+    try:
+        target_path.relative_to(source_root)
+    except ValueError as exc:
+        raise ValueError("target_filename resolves outside the strategy root.") from exc
+    if target_path.exists():
+        raise ValueError(f"Target file already exists: {target_path}")
+
+    existing_entries = discover_strategy_entries(config)
+    new_strategy_id = strategy_identifier(request.strategy_name, request.strategy_version)
+    for entry in existing_entries:
+        if entry.strategy_id == new_strategy_id:
+            raise ValueError(
+                f"strategy_name + strategy_version already exists: {entry.strategy_name} / {entry.strategy_version}"
+            )
+
+    source_config = parse_simple_yaml_file(source_path)
+    cloned_config = copy.deepcopy(source_config)
+    cloned_config["strategy_name"] = request.strategy_name
+    cloned_config["strategy_version"] = request.strategy_version
+    if request.display_name is not None:
+        cloned_config["display_name"] = request.display_name
+    elif "display_name" in cloned_config:
+        cloned_config.pop("display_name", None)
+    if request.description is not None:
+        cloned_config["description"] = request.description
+
+    for field_path, value in request.updates.items():
+        set_dotted_value(cloned_config, field_path, value)
+
+    universe = cloned_config.get("universe", {}) if isinstance(cloned_config.get("universe"), dict) else {}
+    source_artifacts = source_config.get("artifacts", {}) if isinstance(source_config.get("artifacts"), dict) else {}
+    normalize_clone_artifact_paths(
+        cloned_config,
+        strategy_id=new_strategy_id,
+        interval=str(universe.get("interval")) if universe.get("interval") is not None else None,
+        source_artifacts=source_artifacts,
+    )
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(dump_simple_yaml(cloned_config), encoding="utf-8")
+    target_entry = find_strategy_entry_by_path(config, str(target_path))
+    return {
+        "strategy_path": str(target_path),
+        "strategy_id": new_strategy_id,
+        "strategy_root": str(source_root),
+        "strategy": asdict(target_entry) if target_entry is not None else None,
+        "saved_at": utc_now_iso(),
+    }
+
+
 def resolve_workspace_path(config: DashboardConfig, raw_path: str | None) -> Path | None:
     if raw_path is None or raw_path.strip() == "":
         return None
@@ -1872,6 +2323,116 @@ def resolve_workspace_path(config: DashboardConfig, raw_path: str | None) -> Pat
 
 def strategy_identifier(strategy_name: str, strategy_version: str) -> str:
     return f"{strategy_name.strip()}_{strategy_version.strip()}"
+
+
+def resolve_strategy_root_path(config: DashboardConfig, raw_path: str) -> Path:
+    candidate = Path(raw_path).expanduser()
+    if not candidate.is_absolute():
+        candidate = config.workspace_root / candidate
+    resolved = candidate.resolve()
+    if not resolved.exists():
+        raise ValueError(f"Strategy root does not exist: {resolved}")
+    if not resolved.is_dir():
+        raise ValueError(f"Strategy root must be a directory: {resolved}")
+    if resolved == config.strategies_root.resolve():
+        raise ValueError("Default workspace strategy root is already enabled.")
+    return resolved
+
+
+def load_persisted_strategy_roots(config: DashboardConfig) -> tuple[Path, ...]:
+    path = config.strategy_root_store_path
+    if not path.is_file():
+        return tuple()
+
+    with STRATEGY_ROOT_STORE_LOCK:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return tuple()
+
+    raw_roots = payload.get("roots", []) if isinstance(payload, dict) else []
+    if not isinstance(raw_roots, list):
+        return tuple()
+
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for raw_value in raw_roots:
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            continue
+        candidate = Path(raw_value).expanduser().resolve()
+        if candidate == config.strategies_root.resolve() or candidate in seen:
+            continue
+        seen.add(candidate)
+        roots.append(candidate)
+    return tuple(roots)
+
+
+def save_persisted_strategy_roots(config: DashboardConfig, roots: list[Path]) -> None:
+    deduped: list[str] = []
+    seen: set[Path] = set()
+    for raw_path in roots:
+        resolved = raw_path.resolve()
+        if resolved == config.strategies_root.resolve() or resolved in seen:
+            continue
+        seen.add(resolved)
+        deduped.append(str(resolved))
+
+    payload = {
+        "roots": deduped,
+        "updated_at": utc_now_iso(),
+    }
+    target_path = config.strategy_root_store_path
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = target_path.with_name(f"{target_path.name}.tmp")
+    body = json.dumps(payload, ensure_ascii=True, indent=2) + "\n"
+    with STRATEGY_ROOT_STORE_LOCK:
+        temp_path.write_text(body, encoding="utf-8")
+        temp_path.replace(target_path)
+
+
+def iter_extra_strategy_roots(config: DashboardConfig) -> list[Path]:
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in (*config.extra_strategy_roots, *load_persisted_strategy_roots(config)):
+        resolved = candidate.resolve()
+        if resolved == config.strategies_root.resolve() or resolved in seen:
+            continue
+        seen.add(resolved)
+        roots.append(resolved)
+    return roots
+
+
+def iter_strategy_roots(config: DashboardConfig) -> list[Path]:
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in (config.strategies_root, *iter_extra_strategy_roots(config)):
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        roots.append(resolved)
+    return roots
+
+
+def iter_strategy_config_paths(root: Path) -> list[Path]:
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in ("**/*.yaml", "**/*.yml"):
+        for path in sorted(root.glob(pattern)):
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            paths.append(path)
+    return paths
+
+
+def strategy_location_kind(config: DashboardConfig, path: Path) -> str:
+    try:
+        path.resolve().relative_to(config.workspace_root)
+    except ValueError:
+        return "external"
+    return "workspace"
 
 
 def resolve_normalized_input_path(
@@ -1891,80 +2452,93 @@ def resolve_normalized_input_path(
 
 
 def discover_strategy_entries(config: DashboardConfig) -> list[StrategyEntry]:
-    if not config.strategies_root.exists():
-        return []
-
     entries: list[StrategyEntry] = []
-    for path in sorted(config.strategies_root.glob("*.yaml")):
-        try:
-            parsed = parse_simple_yaml_file(path)
-        except Exception:
-            parsed = {}
+    seen_paths: set[Path] = set()
+    for root in iter_strategy_roots(config):
+        if not root.exists():
+            continue
+        for path in iter_strategy_config_paths(root):
+            resolved_path = path.resolve()
+            if resolved_path in seen_paths:
+                continue
+            seen_paths.add(resolved_path)
 
-        universe = parsed.get("universe", {}) if isinstance(parsed.get("universe"), dict) else {}
-        data_config = parsed.get("data", {}) if isinstance(parsed.get("data"), dict) else {}
-        backtest = parsed.get("backtest", {}) if isinstance(parsed.get("backtest"), dict) else {}
-        artifacts = parsed.get("artifacts", {}) if isinstance(parsed.get("artifacts"), dict) else {}
-        symbols = universe.get("symbols", []) if isinstance(universe.get("symbols"), list) else []
-        data_version = str(data_config.get("data_version")) if data_config.get("data_version") is not None else None
-        interval = str(universe.get("interval")) if universe.get("interval") is not None else None
-        input_path = resolve_normalized_input_path(
-            config,
-            data_version=data_version,
-            interval=interval,
-        )
-        summary_path = resolve_workspace_path(config, str(artifacts.get("summary_path", "")) or None)
-        updated_at = None
-        if summary_path is not None and summary_path.exists():
-            updated_at = isoformat_utc_from_timestamp(summary_path.stat().st_mtime)
-        else:
-            updated_at = isoformat_utc_from_timestamp(path.stat().st_mtime)
+            try:
+                parsed = parse_simple_yaml_file(path)
+            except Exception:
+                parsed = {}
 
-        entries.append(
-            StrategyEntry(
-                strategy_id=strategy_identifier(
-                    str(parsed.get("strategy_name", path.stem)),
-                    str(parsed.get("strategy_version", "unknown")),
-                ),
-                strategy_name=str(parsed.get("strategy_name", path.stem)),
-                strategy_version=str(parsed.get("strategy_version", "unknown")),
-                description=str(parsed.get("description", "")),
-                exchange=str(universe.get("exchange")) if universe.get("exchange") is not None else None,
-                market_type=(
-                    str(universe.get("market_type"))
-                    if universe.get("market_type") is not None
-                    else None
-                ),
-                interval=interval,
-                data_version=data_version,
-                configured_engine=(
-                    str(backtest.get("engine")) if backtest.get("engine") is not None else None
-                ),
-                symbols=[str(item) for item in symbols],
-                symbol_count=len(symbols),
-                backtest_start=(
-                    str(backtest.get("start_date")) if backtest.get("start_date") is not None else None
-                ),
-                backtest_end=(
-                    str(backtest.get("end_date")) if backtest.get("end_date") is not None else None
-                ),
-                input_path=str(input_path) if input_path is not None else None,
-                input_exists=bool(input_path and input_path.exists()),
-                strategy_path=str(path),
-                signal_path=str(resolve_workspace_path(config, str(artifacts.get("signal_path", "")) or None))
-                if artifacts.get("signal_path") is not None
-                else None,
-                trades_path=str(resolve_workspace_path(config, str(artifacts.get("trades_path", "")) or None))
-                if artifacts.get("trades_path") is not None
-                else None,
-                equity_path=str(resolve_workspace_path(config, str(artifacts.get("equity_path", "")) or None))
-                if artifacts.get("equity_path") is not None
-                else None,
-                summary_path=str(summary_path) if summary_path is not None else None,
-                summary_exists=bool(summary_path and summary_path.exists()),
-                updated_at=updated_at,
+            universe = parsed.get("universe", {}) if isinstance(parsed.get("universe"), dict) else {}
+            data_config = parsed.get("data", {}) if isinstance(parsed.get("data"), dict) else {}
+            backtest = parsed.get("backtest", {}) if isinstance(parsed.get("backtest"), dict) else {}
+            artifacts = parsed.get("artifacts", {}) if isinstance(parsed.get("artifacts"), dict) else {}
+            symbols = universe.get("symbols", []) if isinstance(universe.get("symbols"), list) else []
+            data_version = (
+                str(data_config.get("data_version")) if data_config.get("data_version") is not None else None
             )
-        )
+            interval = str(universe.get("interval")) if universe.get("interval") is not None else None
+            input_path = resolve_normalized_input_path(
+                config,
+                data_version=data_version,
+                interval=interval,
+            )
+            summary_path = resolve_workspace_path(config, str(artifacts.get("summary_path", "")) or None)
+            updated_at = None
+            if summary_path is not None and summary_path.exists():
+                updated_at = isoformat_utc_from_timestamp(summary_path.stat().st_mtime)
+            else:
+                updated_at = isoformat_utc_from_timestamp(path.stat().st_mtime)
+
+            entries.append(
+                StrategyEntry(
+                    strategy_id=strategy_identifier(
+                        str(parsed.get("strategy_name", path.stem)),
+                        str(parsed.get("strategy_version", "unknown")),
+                    ),
+                    strategy_name=str(parsed.get("strategy_name", path.stem)),
+                    strategy_version=str(parsed.get("strategy_version", "unknown")),
+                    display_name=(
+                        str(parsed.get("display_name")) if parsed.get("display_name") is not None else None
+                    ),
+                    description=str(parsed.get("description", "")),
+                    strategy_root=str(root),
+                    location_kind=strategy_location_kind(config, resolved_path),
+                    exchange=str(universe.get("exchange")) if universe.get("exchange") is not None else None,
+                    market_type=(
+                        str(universe.get("market_type"))
+                        if universe.get("market_type") is not None
+                        else None
+                    ),
+                    interval=interval,
+                    data_version=data_version,
+                    configured_engine=(
+                        str(backtest.get("engine")) if backtest.get("engine") is not None else None
+                    ),
+                    symbols=[str(item) for item in symbols],
+                    symbol_count=len(symbols),
+                    backtest_start=(
+                        str(backtest.get("start_date")) if backtest.get("start_date") is not None else None
+                    ),
+                    backtest_end=(
+                        str(backtest.get("end_date")) if backtest.get("end_date") is not None else None
+                    ),
+                    input_path=str(input_path) if input_path is not None else None,
+                    input_exists=bool(input_path and input_path.exists()),
+                    strategy_path=str(resolved_path),
+                    signal_path=str(resolve_workspace_path(config, str(artifacts.get("signal_path", "")) or None))
+                    if artifacts.get("signal_path") is not None
+                    else None,
+                    trades_path=str(resolve_workspace_path(config, str(artifacts.get("trades_path", "")) or None))
+                    if artifacts.get("trades_path") is not None
+                    else None,
+                    equity_path=str(resolve_workspace_path(config, str(artifacts.get("equity_path", "")) or None))
+                    if artifacts.get("equity_path") is not None
+                    else None,
+                    summary_path=str(summary_path) if summary_path is not None else None,
+                    summary_exists=bool(summary_path and summary_path.exists()),
+                    updated_at=updated_at,
+                )
+            )
     return entries
 
 
@@ -2009,10 +2583,12 @@ def build_fallback_backtest_record(entry: StrategyEntry) -> BacktestRecord:
         run_id=None,
         strategy_id=entry.strategy_id,
         strategy_name=entry.strategy_name,
+        display_name=entry.display_name,
         strategy_version=entry.strategy_version,
         engine=entry.configured_engine,
         status=status,
         input_path=entry.input_path,
+        strategy_path=entry.strategy_path,
         manifest_path=None,
         report_available=bool(summary_exists and equity_exists),
         summary_path=entry.summary_path,
@@ -2042,6 +2618,7 @@ def discover_manifest_backtest_records(config: DashboardConfig) -> dict[str, lis
     if not config.backtests_root.exists():
         return {}
 
+    entries_by_id = {entry.strategy_id: entry for entry in discover_strategy_entries(config)}
     records_by_strategy: dict[str, list[BacktestRecord]] = {}
     for manifest_path in sorted(config.backtests_root.glob("*/runs/*/manifest.json")):
         manifest = load_backtest_manifest(manifest_path)
@@ -2056,6 +2633,7 @@ def discover_manifest_backtest_records(config: DashboardConfig) -> dict[str, lis
         if not strategy_id:
             continue
 
+        entry = entries_by_id.get(strategy_id)
         summary_path = resolve_workspace_path(config, str(manifest.get("summary_path", "")) or None)
         trades_path = resolve_workspace_path(config, str(manifest.get("trades_path", "")) or None)
         equity_path = resolve_workspace_path(config, str(manifest.get("equity_path", "")) or None)
@@ -2077,10 +2655,20 @@ def discover_manifest_backtest_records(config: DashboardConfig) -> dict[str, lis
             run_id=str(manifest.get("run_id")) if manifest.get("run_id") is not None else manifest_path.parent.name,
             strategy_id=strategy_id,
             strategy_name=strategy_name or strategy_id,
+            display_name=(
+                str(manifest.get("display_name"))
+                if manifest.get("display_name") is not None
+                else (entry.display_name if entry is not None else None)
+            ),
             strategy_version=strategy_version or "unknown",
             engine=str(manifest.get("engine")) if manifest.get("engine") is not None else None,
             status=str(manifest.get("status", "unknown")),
             input_path=str(manifest.get("input_path")) if manifest.get("input_path") is not None else None,
+            strategy_path=(
+                str(resolve_workspace_path(config, str(manifest.get("strategy_path"))))
+                if manifest.get("strategy_path") is not None
+                else (entry.strategy_path if entry is not None else None)
+            ),
             manifest_path=str(manifest_path.resolve()),
             report_available=bool(summary_exists and equity_exists),
             summary_path=str(summary_path) if summary_path is not None else None,
@@ -2849,6 +3437,7 @@ class BacktestJobRegistry:
                 run_id=run_id,
                 strategy_id=strategy_entry.strategy_id,
                 strategy_name=strategy_entry.strategy_name,
+                display_name=strategy_entry.display_name,
                 strategy_version=strategy_entry.strategy_version,
                 engine=resolved_engine,
                 interval=strategy_entry.interval,
@@ -2901,6 +3490,7 @@ class BacktestJobRegistry:
             "run_id": job.run_id,
             "strategy_id": job.strategy_id,
             "strategy_name": job.strategy_name,
+            "display_name": job.display_name,
             "strategy_version": job.strategy_version,
             "engine": job.engine,
             "status": "succeeded" if error_message is None and execution is not None else "failed",
@@ -3030,6 +3620,9 @@ class PairAdminHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/strategies":
             self.handle_strategies()
             return
+        if parsed.path == "/api/strategy-config":
+            self.handle_strategy_config(parsed.query)
+            return
         if parsed.path == "/api/backtest-records":
             self.handle_backtest_records()
             return
@@ -3087,6 +3680,12 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/run-backtest":
             self.handle_run_backtest()
+            return
+        if parsed.path == "/api/strategy-roots":
+            self.handle_add_strategy_root()
+            return
+        if parsed.path == "/api/clone-strategy-config":
+            self.handle_clone_strategy_config()
             return
         self.respond_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
 
@@ -3206,6 +3805,38 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             }
         )
 
+    def handle_strategy_config(self, query: str) -> None:
+        params = parse_qs(query)
+        strategy_path = params.get("strategy_path", [""])[0].strip()
+        if not strategy_path:
+            self.respond_json({"error": "strategy_path is required."}, status=HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            payload = build_strategy_config_payload(self.server.config, strategy_path)
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+            return
+        except Exception as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self.respond_json(payload)
+
+    def handle_add_strategy_root(self) -> None:
+        try:
+            payload = self.read_json_body()
+            request = parse_strategy_root_payload(payload)
+            result = add_persisted_strategy_root(self.server.config, request)
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self.respond_json(
+            {
+                "message": "Strategy root saved." if result["created"] else "Strategy root already saved.",
+                **result,
+            },
+            status=HTTPStatus.CREATED if result["created"] else HTTPStatus.OK,
+        )
+
     def handle_backtest_records(self) -> None:
         records = discover_backtest_records(self.server.config)
         self.respond_json(
@@ -3238,6 +3869,8 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             if log_files:
                 latest_log_path = str(log_files[-1])
         icon_payload = list_currency_icons(self.server.config)
+        persisted_strategy_roots = load_persisted_strategy_roots(self.server.config)
+        merged_extra_strategy_roots = iter_extra_strategy_roots(self.server.config)
 
         self.respond_json(
             {
@@ -3245,6 +3878,13 @@ class PairAdminHandler(BaseHTTPRequestHandler):
                 "raw_root": str(self.server.config.raw_root),
                 "normalized_root": str(self.server.config.normalized_root),
                 "strategies_root": str(self.server.config.strategies_root),
+                "configured_extra_strategy_roots": [
+                    str(path) for path in self.server.config.extra_strategy_roots
+                ],
+                "persisted_extra_strategy_roots": [str(path) for path in persisted_strategy_roots],
+                "extra_strategy_roots": [str(path) for path in merged_extra_strategy_roots],
+                "strategy_roots": [str(path) for path in iter_strategy_roots(self.server.config)],
+                "strategy_root_store_path": str(self.server.config.strategy_root_store_path),
                 "backtests_root": str(self.server.config.backtests_root),
                 "logs_root": str(self.server.config.logs_root),
                 "quant_db_path": str(self.server.config.quant_db_path),
@@ -3482,6 +4122,28 @@ class PairAdminHandler(BaseHTTPRequestHandler):
             return
         self.respond_json({"message": "Backtest job created.", "job": asdict(job)}, status=HTTPStatus.ACCEPTED)
 
+    def handle_clone_strategy_config(self) -> None:
+        try:
+            payload = self.read_json_body()
+            request = parse_strategy_clone_payload(payload)
+            result = clone_strategy_config(self.server.config, request)
+        except ValueError as exc:
+            self.respond_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self.respond_json(
+                {"error": f"Failed to clone strategy config: {exc}"},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+        self.respond_json(
+            {
+                "message": "Strategy config cloned.",
+                **result,
+            },
+            status=HTTPStatus.CREATED,
+        )
+
     def handle_charting_library_file(self, raw_path: str) -> None:
         relative_path = raw_path.removeprefix("/charting_library/").strip("/")
         requested_path = resolve_charting_library_asset_path(relative_path)
@@ -3604,11 +4266,14 @@ class PairAdminHandler(BaseHTTPRequestHandler):
 
 def build_config(args: argparse.Namespace) -> DashboardConfig:
     workspace_root = Path.cwd().resolve()
+    extra_strategy_roots = resolve_extra_strategy_roots(args.extra_strategy_root)
     return DashboardConfig(
         workspace_root=workspace_root,
         raw_root=Path(args.raw_root).expanduser().resolve(),
         normalized_root=Path(args.normalized_root).expanduser().resolve(),
         strategies_root=Path(args.strategies_root).expanduser().resolve(),
+        extra_strategy_roots=extra_strategy_roots,
+        strategy_root_store_path=Path(args.strategy_root_store).expanduser().resolve(),
         backtests_root=Path(args.backtests_root).expanduser().resolve(),
         logs_root=Path(args.logs_root).expanduser().resolve(),
         quant_db_path=DEFAULT_QUANT_DB_PATH.expanduser().resolve(),
@@ -3627,6 +4292,23 @@ def build_config(args: argparse.Namespace) -> DashboardConfig:
         default_quote_asset=args.default_quote_asset.strip().upper(),
         default_tradeable_only=args.default_tradeable_only,
     )
+
+
+def resolve_extra_strategy_roots(raw_values: list[str] | None) -> tuple[Path, ...]:
+    env_values = os.environ.get(EXTRA_STRATEGY_ROOTS_ENV, "")
+    combined: list[str] = list(raw_values or [])
+    if env_values.strip():
+        combined.extend(item for item in env_values.split(os.pathsep) if item.strip())
+
+    deduped: list[Path] = []
+    seen: set[Path] = set()
+    for raw_value in combined:
+        candidate = Path(raw_value).expanduser().resolve()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        deduped.append(candidate)
+    return tuple(deduped)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-03-20T14:44:32Z",
+  "engine": "native",
+  "strategy_name": "jingdaihuakai",
+  "strategy_version": "v1",
+  "initial_capital": 100000.0,
+  "final_equity": 136926.67279404902,
+  "total_return": 0.3692667279404902,
+  "cagr": 0.03825007154311488,
+  "max_drawdown": -0.15177045505432918,
+  "sharpe": 0.48803117625413067,
+  "win_rate": 0.538787023977433,
+  "trade_count": 17016,
+  "winning_trade_count": 9168,
+  "losing_trade_count": 7848,
+  "profit_factor": 1.7573929483549775,
+  "benchmark_symbol": "BNBUSDT",
+  "start_date": null,
+  "end_date": null
+}
